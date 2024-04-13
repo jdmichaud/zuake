@@ -3,7 +3,7 @@ const std = @import("std");
 
 const stdout = std.io.getStdOut().writer();
 
-fn load(pathname: []const u8) ![]align(4096) const u8 {
+fn load(pathname: []const u8) ![]align(1096) const u8 {
   var file = try std.fs.cwd().openFile(pathname, .{});
   defer file.close();
 
@@ -107,7 +107,7 @@ const MipTexturesHeader = extern struct {
   offset: [0]u32,              // Offset to each of the individual texture
 
   // Returns the offset of the mipTextures relative to the beginning of the file
-  pub fn getOffsets(self: *const MipTexturesHeader) []u32 {
+  pub fn getOffsets(self: *align(1) const MipTexturesHeader) []u32 {
     return @as([*]u32, &self.offset)[0..self.numtex];
   }
 };
@@ -263,14 +263,14 @@ const Model = extern struct {
 };
 
 fn loadLumpArray(comptime T: type, bsp: []const u8,
-  lumpHeader: LumpHeader) ![]const T {
-  const ts: [*]const T = @alignCast(@ptrCast(&bsp[lumpHeader.offset]));
+  lumpHeader: LumpHeader) ![]align(1) const T {
+  const ts: [*]align(1) const T = @alignCast(@ptrCast(&bsp[lumpHeader.offset]));
   const nbT = lumpHeader.size / @sizeOf(T);
   return ts[0..nbT];
 }
 
 fn loadMipTextures(allocator: std.mem.Allocator, bsp: []const u8,
-  mipTexturesHeader: *align(4) const MipTexturesHeader) ![]*align(1) const MipTexture {
+  mipTexturesHeader: *align(1) const MipTexturesHeader) ![]*align(1) const MipTexture {
   var textures: []*align(1) const MipTexture = try allocator.alloc(*align(1) const MipTexture, mipTexturesHeader.numtex);
   var i: usize = 0;
   while (i < mipTexturesHeader.numtex) {
@@ -281,28 +281,43 @@ fn loadMipTextures(allocator: std.mem.Allocator, bsp: []const u8,
   return textures[0..mipTexturesHeader.numtex];
 }
 
-const Bsp = struct {
+pub const Bsp = struct {
+  const Self = @This();
+
   header: BspHeader,
   entities: Entities,
-  planes: []const Plane,
-  mipTexturesHeader: *align(4) const MipTexturesHeader,
+  planes: []align(1) const Plane,
+  mipTexturesHeader: *align(1) const MipTexturesHeader,
   mipTextures: []*align(1) const MipTexture,
-  vertices: []const Vertex,
-  nodes: []const Node,
-  textureInfos: []const TextureInfo,
-  faces: []const Face,
-  clipNodes: []const ClipNode,
-  lfaces: []const u16,
-  ledges: []const i16,
-  edges: []const Edge,
-  leaves: []const Leaf,
-  models: []const Model,
+  vertices: []align(1) const Vertex,
+  nodes: []align(1) const Node,
+  textureInfos: []align(1) const TextureInfo,
+  faces: []align(1) const Face,
+  clipNodes: []align(1) const ClipNode,
+  lfaces: []align(1) const u16,
+  ledges: []align(1) const i16,
+  edges: []align(1) const Edge,
+  leaves: []align(1) const Leaf,
+  models: []align(1) const Model,
+
+  pub fn init(allocator: std.mem.Allocator, buffer: []const u8) !Bsp {
+    const bspHeader: *align(1) const BspHeader = @alignCast(@ptrCast(&buffer[0]));
+    if (bspHeader.version != 29) {
+      @panic("not a bps29 file");
+    }
+    const bsp = try decodeBsp(allocator, bspHeader.*, buffer);
+    return bsp;
+  }
+
+  pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    allocator.free(self.mipTextures);
+  }
 };
 
 pub fn decodeBsp(allocator: std.mem.Allocator, header: BspHeader, bsp: []const u8) !Bsp {
   const entities = try Entities.decode(bsp, header.entities);
   const planes = try loadLumpArray(Plane, bsp, header.planes);
-  const mipTexturesHeader: *align(4) const MipTexturesHeader = @alignCast(@ptrCast(&bsp[header.miptextures.offset]));
+  const mipTexturesHeader: *align(1) const MipTexturesHeader = @alignCast(@ptrCast(&bsp[header.miptextures.offset]));
   const mipTextures = try loadMipTextures(allocator, bsp, mipTexturesHeader);
   const vertices = try loadLumpArray(Vertex, bsp, header.vertices);
   const nodes = try loadLumpArray(Node, bsp, header.nodes);
@@ -428,15 +443,6 @@ fn prettyprint(bsp: Bsp, nodeId: u16, level: u16, w: anytype) !void {
       // try w.print("back leaf {} type {}\n", .{ ~bsp.nodes[nodeId].back, bsp.leaves[~bsp.nodes[nodeId].back].type });
     }
   }
-}
-
-pub fn loadBsp(allocator: std.mem.Allocator, buffer: []const u8) !Bsp {
-  const bspHeader: *align(1) const BspHeader = @alignCast(@ptrCast(&buffer[0]));
-  if (bspHeader.version != 29) {
-    @panic("not a bps29 file");
-  }
-  const bsp = try decodeBsp(allocator, bspHeader.*, buffer);
-  return bsp;
 }
 
 pub fn main() !void {

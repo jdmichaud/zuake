@@ -1,4 +1,4 @@
-// clear && zig build-exe -freference-trace mip.zig && ./mip ../data/pak/maps/start.bsp
+// clear && zig build-exe -freference-trace mip.zig && time ./mip ../data/pak/maps/start.bsp ../data/pak/gfx/palette.lmp mips
 const std = @import("std");
 const bspModule = @import("bsp.zig");
 
@@ -69,8 +69,8 @@ pub fn main() !void {
   // Load the BSP file
   const buffer = try load(bspFilepath);
   defer std.posix.munmap(buffer);
-  const bsp = try bspModule.loadBsp(allocator, buffer);
-  defer allocator.free(bsp.mipTextures);
+  var bsp = try bspModule.Bsp.init(allocator, buffer);
+  defer bsp.deinit(allocator);
   // Load the palette
   // https://quakewiki.org/wiki/palette.lmp
   const palette = load(paletteFilepath) catch |err| {
