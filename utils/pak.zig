@@ -27,11 +27,30 @@ const PakHeader = extern struct {
   size: u32,
 };
 
-const EntryHeader = extern struct {
+pub const EntryHeader = extern struct {
   pathname: [56]u8,
   offset: u32,
   size: u32,
 };
+
+pub fn loadPak(allocator: std.mem.Allocator, buffer: []const u8) ![]*align(1) const EntryHeader {
+  const pakHeader: *align(1) const PakHeader = @alignCast(@ptrCast(&buffer[0]));
+  if (!std.mem.eql(u8, &pakHeader.magic, "PACK")) {
+    @panic("not a pak file");
+  }
+
+  var entries: []*align(1) const EntryHeader =
+    try allocator.alloc(*const EntryHeader, pakHeader.size / @sizeOf(EntryHeader));
+  const nbEntries = pakHeader.size / @sizeOf(EntryHeader);
+  var i: u32 = 0;
+  while (i < nbEntries) {
+    const entryOffset = pakHeader.offset + i * @sizeOf(EntryHeader);
+    entries[i] = @alignCast(@ptrCast(&buffer[entryOffset]));
+    i += 1;
+  }
+
+  return entries;
+}
 
 pub fn main() !void {
   var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -57,14 +76,14 @@ pub fn main() !void {
     @panic("not a pak file");
   }
   try stdout.print("magic: {s}\n", .{ pakHeader.magic });
-  try stdout.print("offset: {}\n", .{ pakHeader.offset });
+  try stdout.print("offset: 0x{x}\n", .{ pakHeader.offset });
   try stdout.print("size: {} entries\n", .{ pakHeader.size / @sizeOf(EntryHeader) });
 
-  var i: u32 = 0;
-  while (i < (pakHeader.size / @sizeOf(EntryHeader))) {
-    const entryOffset = pakHeader.offset + i * @sizeOf(EntryHeader);
-    const entry: *align(1) const EntryHeader = @alignCast(@ptrCast(&pak[entryOffset]));
-    try stdout.print(" {s} (@0x{x} {}) -> ", .{ entry.pathname, entry.offset, entry.size });
+  const entries = try loadPak(allocator, pak);
+  defer allocator.free(entries);
+
+  for (entries, 0..) |entry, i| {
+    try stdout.print(" {}: {s} (@0x{x} {}) -> ", .{ i, entry.pathname, entry.offset, entry.size });
 
     // Create the path
     const dirname = std.fs.path.dirname(&entry.pathname) orelse "";
@@ -77,7 +96,5 @@ pub fn main() !void {
     // Write to file
     var file = try dir.createFile(basename, .{ .truncate = true });
     try file.writeAll(pak[entry.offset..entry.offset + entry.size]);
-
-    i += 1;
   }
 }

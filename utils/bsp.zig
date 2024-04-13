@@ -1,4 +1,4 @@
-// zig build-exe -freference-trace bsp.zig && ./bsp ../data/pak/maps/start.bsp
+// clear && zig build-exe -freference-trace bsp.zig && ./bsp ../data/pak/maps/start.bsp
 const std = @import("std");
 
 const stdout = std.io.getStdOut().writer();
@@ -100,30 +100,23 @@ const Plane = extern struct {
   normal: [3]f32,
   distance: f32,
   type: PlaneType,
-
-  pub fn decode(bsp: []const u8, offset: usize) !Plane {
-    return .{
-      .normal = @bitCast(bsp[offset..][0..3 * @sizeOf(f32)].*),
-      .distance = std.mem.bytesAsValue(f32, bsp[offset + 3 * @sizeOf(f32)..offset + 4 * @sizeOf(f32)]).*,
-      .type = std.mem.bytesAsValue(PlaneType, bsp[offset + 4 * @sizeOf(f32)..offset + 4 * @sizeOf(f32) + @sizeOf(u32)]).*,
-    };
-  }
 };
 
-const MiptextureHeader = extern struct {
+const MipTexturesHeader = extern struct {
   numtex: u32,                 // Number of textures in Mip Texture list
   offset: [0]u32,              // Offset to each of the individual texture
 
-  pub fn getOffsets(self: *const MiptextureHeader) []u32 {
+  // Returns the offset of the mipTextures relative to the beginning of the file
+  pub fn getOffsets(self: *const MipTexturesHeader) []u32 {
     return @as([*]u32, &self.offset)[0..self.numtex];
   }
 };
 
-const Miptexture = extern struct {
+pub const MipTexture = extern struct {
   name: [16] u8,               // Name of the texture.
   width: u32,                  // width of picture, must be a multiple of 8
   height: u32,                 // height of picture, must be a multiple of 8
-  // All these offset are relative to the beginning of the Miptexture struct
+  // All these offset are relative to the beginning of the MipTexture struct
   offset1: u32,                // offset to u_char Pix[width   * height]
   offset2: u32,                // offset to u_char Pix[width/2 * height/2]
   offset4: u32,                // offset to u_char Pix[width/4 * height/4]
@@ -140,7 +133,7 @@ const Vertex = extern struct {
 };
 
 const Node = extern struct {
-  planeId: i32,                // The plane that splits the node
+  planeId: i32,                 // The plane that splits the node
                                 //           must be in [0,numplanes[
   front: u16,                   // If bit15==0, index of Front child node
                                 // If bit15==1, ~front = index of child leaf
@@ -216,8 +209,17 @@ const ClipNode = extern struct {
                                // If -1, the Back part is outside the model
 };
 
+const LeafType = enum(i32) {
+  ORDINARY = -1,// ordinary leaf
+  SOLID = -2,// the leaf is entirely inside a solid (nothing is displayed).
+  WATER = -3,// Water, the vision is troubled.
+  SLIME = -4,// Slime, green acid that hurts the player.
+  LAVA = -5,// Lava, vision turns red and the player is badly hurt.
+  SKY = -6,// Behaves like water, but is used for sky.
+};
+
 const Leaf = extern struct {
-  type: i32,                   // Special type of leaf
+  type: LeafType,              // Special type of leaf
   vislist: i32,                // Beginning of visibility lists
                                //     must be -1 or in [0,numvislist[
   boundingBoxMinX: i16,
@@ -267,17 +269,174 @@ fn loadLumpArray(comptime T: type, bsp: []const u8,
   return ts[0..nbT];
 }
 
-fn loadMiptextures(allocator: std.mem.Allocator, bsp: []const u8,
-  lumpHeader: LumpHeader) ![]*align(4) const Miptexture {
-  const miptextureHeader: *align(4) const MiptextureHeader = @alignCast(@ptrCast(&bsp[lumpHeader.offset]));
-  var textures: []*align(4) const Miptexture = try allocator.alloc(*align(4) const Miptexture, miptextureHeader.numtex);
+fn loadMipTextures(allocator: std.mem.Allocator, bsp: []const u8,
+  mipTexturesHeader: *align(4) const MipTexturesHeader) ![]*align(1) const MipTexture {
+  var textures: []*align(1) const MipTexture = try allocator.alloc(*align(1) const MipTexture, mipTexturesHeader.numtex);
   var i: usize = 0;
-  while (i < miptextureHeader.numtex) {
-    const mipTextureOffset = lumpHeader.offset + miptextureHeader.getOffsets()[i];
+  while (i < mipTexturesHeader.numtex) {
+    const mipTextureOffset = @intFromPtr(mipTexturesHeader) - @intFromPtr(bsp.ptr) + mipTexturesHeader.getOffsets()[i];
     textures[i] = @alignCast(@ptrCast(&bsp[mipTextureOffset]));
     i += 1;
   }
-  return textures[0..miptextureHeader.numtex];
+  return textures[0..mipTexturesHeader.numtex];
+}
+
+const Bsp = struct {
+  header: BspHeader,
+  entities: Entities,
+  planes: []const Plane,
+  mipTexturesHeader: *align(4) const MipTexturesHeader,
+  mipTextures: []*align(1) const MipTexture,
+  vertices: []const Vertex,
+  nodes: []const Node,
+  textureInfos: []const TextureInfo,
+  faces: []const Face,
+  clipNodes: []const ClipNode,
+  lfaces: []const u16,
+  ledges: []const i16,
+  edges: []const Edge,
+  leaves: []const Leaf,
+  models: []const Model,
+};
+
+pub fn decodeBsp(allocator: std.mem.Allocator, header: BspHeader, bsp: []const u8) !Bsp {
+  const entities = try Entities.decode(bsp, header.entities);
+  const planes = try loadLumpArray(Plane, bsp, header.planes);
+  const mipTexturesHeader: *align(4) const MipTexturesHeader = @alignCast(@ptrCast(&bsp[header.miptextures.offset]));
+  const mipTextures = try loadMipTextures(allocator, bsp, mipTexturesHeader);
+  const vertices = try loadLumpArray(Vertex, bsp, header.vertices);
+  const nodes = try loadLumpArray(Node, bsp, header.nodes);
+  {
+    var i: usize = 0;
+    while (i < nodes.len) {
+      std.debug.assert(nodes[i].boundingBoxMinX < nodes[i].boundingBoxMaxX);
+      std.debug.assert(nodes[i].boundingBoxMinY < nodes[i].boundingBoxMaxY);
+      std.debug.assert(nodes[i].boundingBoxMinZ < nodes[i].boundingBoxMaxZ);
+      std.debug.assert(nodes[i].planeId < planes.len);
+      i += 1;
+    }
+  }
+  const textureInfos = try loadLumpArray(TextureInfo, bsp, header.textureInfo);
+  {
+    var i: usize = 0;
+    while (i < textureInfos.len) {
+      std.debug.assert(textureInfos[i].textureId < mipTextures.len);
+      std.debug.assert(textureInfos[i].animated == 0 or textureInfos[i].animated == 1);
+      i += 1;
+    }
+  }
+  const faces = try loadLumpArray(Face, bsp, header.faces);
+  {
+    var i: usize = 0;
+    while (i < faces.len) {
+      std.debug.assert(faces[i].planeId < planes.len);
+      std.debug.assert(faces[i].texinfoId < textureInfos.len);
+      std.debug.assert(@intFromEnum(faces[i].typelight) == 0xFF or
+        (0 <= @intFromEnum(faces[i].typelight) and @intFromEnum(faces[i].typelight) <= 10));
+      i += 1;
+    }
+  }
+  const clipNodes = try loadLumpArray(ClipNode, bsp, header.clipNodes);
+  {
+    var i: usize = 0;
+    while (i < clipNodes.len) {
+      std.debug.assert(clipNodes[i].planeId < planes.len);
+      std.debug.assert(clipNodes[i].front >= -2);
+      std.debug.assert(clipNodes[i].back >= -2);
+      i += 1;
+    }
+  }
+  const lfaces = try loadLumpArray(u16, bsp, header.lfaces);
+  const leaves = try loadLumpArray(Leaf, bsp, header.leaves);
+  {
+    var i: usize = 0;
+    while (i < leaves.len) {
+      std.debug.assert(leaves[i].lfaceId + leaves[i].lfaceNum <= lfaces.len);
+      i += 1;
+    }
+  }
+  const edges = try loadLumpArray(Edge, bsp, header.edges);
+  {
+    var i: usize = 0;
+    while (i < edges.len) {
+      std.debug.assert(edges[i].vertex0 < vertices.len);
+      std.debug.assert(edges[i].vertex1 < vertices.len);
+      i += 1;
+    }
+  }
+  const ledges = try loadLumpArray(i16, bsp, header.ledges);
+  const models = try loadLumpArray(Model, bsp, header.models);
+  {
+    var i: usize = 0;
+    while (i < models.len) {
+      std.debug.assert(models[i].nodeId0 < nodes.len);
+      std.debug.assert(models[i].nodeId1 < clipNodes.len);
+      std.debug.assert(models[i].nodeId2 < clipNodes.len);
+      std.debug.assert(models[i].nodeId3 < clipNodes.len);
+      std.debug.assert(models[i].numleafs < leaves.len);
+      std.debug.assert(models[i].faceId + models[i].faceNum <= faces.len);
+      i += 1;
+    }
+  }
+
+  return .{
+    .header = header,
+    .entities = entities,
+    .planes = planes,
+    .mipTexturesHeader = mipTexturesHeader,
+    .mipTextures = mipTextures,
+    .vertices = vertices,
+    .nodes = nodes,
+    .textureInfos = textureInfos,
+    .faces = faces,
+    .clipNodes = clipNodes,
+    .lfaces = lfaces,
+    .ledges = ledges,
+    .edges = edges,
+    .leaves = leaves,
+    .models = models,
+  };
+}
+
+fn prettyprint(bsp: Bsp, nodeId: u16, level: u16, w: anytype) !void {
+  _ = w;
+  {
+    // var i: u16 = 0;
+    // while (i < level) {
+    //   try w.writeAll(" ");
+    //   i += 1;
+    // }
+    if (bsp.nodes[nodeId].front & 0x8000 == 0) {
+      // try w.print("front node {}\n", .{ bsp.nodes[nodeId].front });
+      try prettyprint(bsp, bsp.nodes[nodeId].front, level + 1, stdout);
+    } else {
+      std.log.debug("{}", .{ level });
+      // try w.print("front leaf {} type {}\n", .{ ~bsp.nodes[nodeId].front, bsp.leaves[~bsp.nodes[nodeId].front].type });
+    }
+  }
+  {
+    // var i: u16 = 0;
+    // while (i < level) {
+    //   try w.writeAll(" ");
+    //   i += 1;
+    // }
+    if (bsp.nodes[nodeId].back & 0x8000 == 0) {
+      // try w.print("back node {}\n", .{ bsp.nodes[nodeId].back });
+      try prettyprint(bsp, bsp.nodes[nodeId].back, level + 1, stdout);
+    } else {
+      std.log.debug("{}", .{ level });
+      // try w.print("back leaf {} type {}\n", .{ ~bsp.nodes[nodeId].back, bsp.leaves[~bsp.nodes[nodeId].back].type });
+    }
+  }
+}
+
+pub fn loadBsp(allocator: std.mem.Allocator, buffer: []const u8) !Bsp {
+  const bspHeader: *align(1) const BspHeader = @alignCast(@ptrCast(&buffer[0]));
+  if (bspHeader.version != 29) {
+    @panic("not a bps29 file");
+  }
+  const bsp = try decodeBsp(allocator, bspHeader.*, buffer);
+  return bsp;
 }
 
 pub fn main() !void {
@@ -296,107 +455,38 @@ pub fn main() !void {
     return;
   }
 
-  const bsp = try load(args[1]);
-  defer std.posix.munmap(bsp);
+  const buffer = try load(args[1]);
+  defer std.posix.munmap(buffer);
 
-  const bspHeader: *const BspHeader = @ptrCast(&bsp[0]);
+  const bspHeader: *const BspHeader = @ptrCast(&buffer[0]);
   if (bspHeader.version != 29) {
     @panic("not a bps29 file");
   }
-  try stdout.print("version: {}\n", .{ bspHeader.version });
+  std.log.debug("version: {}\n", .{ bspHeader.version });
 
-  const entities = try Entities.decode(bsp, bspHeader.entities);
-  std.log.debug("entities: {}K loaded", .{ entities.data.len / 1024 });
-  const planes = try loadLumpArray(Plane, bsp, bspHeader.planes);
-  std.log.debug("planes: {} loaded", .{ planes.len });
-  const mipTextures = try loadMiptextures(allocator, bsp, bspHeader.miptextures);
-  defer allocator.free(mipTextures);
-  std.log.debug("mipTextures: {} loaded", .{ mipTextures.len });
-  const vertices = try loadLumpArray(Vertex, bsp, bspHeader.vertices);
-  std.log.debug("vertices: {} loaded", .{ vertices.len });
-  std.log.debug("visibility: 0x{x} ({}) ignored", .{ bspHeader.visibilities.offset, bspHeader.visibilities.size });
-  const nodes = try loadLumpArray(Node, bsp, bspHeader.nodes);
-  std.log.debug("nodes: {} loaded", .{ nodes.len });
-  {
-    var i: usize = 0;
-    while (i < nodes.len) {
-      std.debug.assert(nodes[i].boundingBoxMinX < nodes[i].boundingBoxMaxX);
-      std.debug.assert(nodes[i].boundingBoxMinY < nodes[i].boundingBoxMaxY);
-      std.debug.assert(nodes[i].boundingBoxMinZ < nodes[i].boundingBoxMaxZ);
-      std.debug.assert(nodes[i].planeId < planes.len);
-      i += 1;
-    }
-  }
-  const textureInfos = try loadLumpArray(TextureInfo, bsp, bspHeader.textureInfo);
-  std.log.debug("textureInfos: {} loaded", .{ textureInfos.len });
-  {
-    var i: usize = 0;
-    while (i < textureInfos.len) {
-      std.debug.assert(textureInfos[i].textureId < mipTextures.len);
-      std.debug.assert(textureInfos[i].animated == 0 or textureInfos[i].animated == 1);
-      i += 1;
-    }
-  }
-  const faces = try loadLumpArray(Face, bsp, bspHeader.faces);
-  std.log.debug("faces: {} loaded", .{ faces.len });
-  {
-    var i: usize = 0;
-    while (i < faces.len) {
-      std.debug.assert(faces[i].planeId < planes.len);
-      std.debug.assert(faces[i].texinfoId < textureInfos.len);
-      std.debug.assert(@intFromEnum(faces[i].typelight) == 0xFF or
-        (0 <= @intFromEnum(faces[i].typelight) and @intFromEnum(faces[i].typelight) <= 10));
-      i += 1;
-    }
-  }
-  std.log.debug("light map: 0x{x} ({}) ignored", .{ bspHeader.lightmaps.offset, bspHeader.lightmaps.size });
-  const clipNodes = try loadLumpArray(ClipNode, bsp, bspHeader.clipNodes);
-  std.log.debug("clipNodes: {} loaded", .{ clipNodes.len });
-  {
-    var i: usize = 0;
-    while (i < clipNodes.len) {
-      std.debug.assert(clipNodes[i].planeId < planes.len);
-      std.debug.assert(clipNodes[i].front >= -2);
-      std.debug.assert(clipNodes[i].back >= -2);
-      i += 1;
-    }
-  }
-  const lfaces = try loadLumpArray(u16, bsp, bspHeader.lfaces);
-  std.log.debug("lfaces: {} loaded", .{ lfaces.len });
-  const leaves = try loadLumpArray(Leaf, bsp, bspHeader.leaves);
-  std.log.debug("leaves: {} loaded", .{ leaves.len });
-  {
-    var i: usize = 0;
-    while (i < leaves.len) {
-      std.debug.assert(leaves[i].lfaceId + leaves[i].lfaceNum <= lfaces.len);
-      i += 1;
-    }
-  }
-  const edges = try loadLumpArray(Edge, bsp, bspHeader.edges);
-  std.log.debug("edges: {} loaded", .{ edges.len });
-  {
-    var i: usize = 0;
-    while (i < edges.len) {
-      std.debug.assert(edges[i].vertex0 < vertices.len);
-      std.debug.assert(edges[i].vertex1 < vertices.len);
-      i += 1;
-    }
-  }
-  const ledges = try loadLumpArray(i16, bsp, bspHeader.ledges);
-  std.log.debug("ledges: {} loaded", .{ ledges.len });
-  const models = try loadLumpArray(Model, bsp, bspHeader.models);
-  std.log.debug("models: {} loaded", .{ models.len });
-  {
-    var i: usize = 0;
-    while (i < models.len) {
-      std.debug.assert(models[i].nodeId0 < nodes.len);
-      std.debug.assert(models[i].nodeId1 < clipNodes.len);
-      std.debug.assert(models[i].nodeId2 < clipNodes.len);
-      std.debug.assert(models[i].nodeId3 < clipNodes.len);
-      std.debug.assert(models[i].numleafs < leaves.len);
-      std.debug.assert(models[i].faceId + models[i].faceNum <= faces.len);
-      i += 1;
-    }
-  }
-  std.log.debug("level: {any}", .{ models[0] });
+  const bsp = try decodeBsp(allocator, bspHeader.*, buffer);
+  defer allocator.free(bsp.mipTextures);
+
+  std.log.debug("entities: {}K loaded", .{ bsp.entities.data.len / 1024 });
+  std.log.debug("planes: {} loaded", .{ bsp.planes.len });
+  std.log.debug("mipTextures: {} loaded", .{ bsp.mipTextures.len });
+  std.log.debug("vertices: {} loaded", .{ bsp.vertices.len });
+  std.log.debug("visibility: 0x{x} ({}) ignored", .{ bsp.header.visibilities.offset, bspHeader.visibilities.size });
+  std.log.debug("nodes: {} loaded", .{ bsp.nodes.len });
+  std.log.debug("textureInfos: {} loaded", .{ bsp.textureInfos.len });
+  std.log.debug("faces: {} loaded", .{ bsp.faces.len });
+  std.log.debug("light map: 0x{x} ({}) ignored", .{ bsp.header.lightmaps.offset, bspHeader.lightmaps.size });
+  std.log.debug("clipNodes: {} loaded", .{ bsp.clipNodes.len });
+  std.log.debug("lfaces: {} loaded", .{ bsp.lfaces.len });
+  std.log.debug("leaves: {} loaded", .{ bsp.leaves.len });
+  std.log.debug("edges: {} loaded", .{ bsp.edges.len });
+  std.log.debug("ledges: {} loaded", .{ bsp.ledges.len });
+  std.log.debug("models: {} loaded", .{ bsp.models.len });
+  std.log.debug("level: {any}", .{ bsp.models[0] });
+
+  std.log.debug("{}", .{ bsp.models[0].nodeId0 });
+  // var timer = try std.time.Timer.start();
+  // const then = timer.read();
+  // try prettyprint(bsp, @intCast(bsp.models[0].nodeId0), 0, stdout);
+  // try stdout.print("{d}ms\n", .{ @as(f32, @floatFromInt(timer.read() - then)) / 1000000 });
 }

@@ -1,14 +1,21 @@
+// clear && zig build -freference-trace && echo "ready" && zig-out/bin/level
+const std = @import("std");
+const draw = @import("draw.zig");
 const sdlwrapper = @import("sdl.zig");
 const sdl = sdlwrapper.sdl;
+const zlm = @import("zlm.zig").SpecializeOn(f32);
+
+const WIDTH: u16 = 640;
+const HEIGHT: u16 = 320;
 
 pub fn main() !void {
-  const subsystem = try sdlwrapper.init(640, 480);
-  defer sdlwrapper.deinit(subsystem);
+  var subsystem = try sdlwrapper.SdlSubsystem.init(640, 480);
+  defer subsystem.deinit();
 
-  var buffer = [_]u32 { 0 } ** (640*480);
-  buffer[100] = 0xFFFFFFFF;
-  sdlwrapper.prepareScene(subsystem, &buffer);
-  sdlwrapper.renderScene(subsystem);
+  const context = draw.DrawContext(WIDTH, HEIGHT);
+  context.line(0, 0, WIDTH - 1, HEIGHT - 1);
+  context.line(WIDTH - 1, 0, 0, HEIGHT - 1);
+  subsystem.drawImage(&context.buffer, 0, 0, WIDTH, HEIGHT);
 
   var quit = false;
   while (!quit) {
@@ -24,6 +31,7 @@ pub fn main() !void {
         },
         else => {},
       }
+      subsystem.renderScene();
     }
   }
 }

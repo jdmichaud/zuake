@@ -7,3 +7,5 @@
 * Quake file format: https://quakewiki.org/wiki/Quake_file_formats
 * BSP29 format: https://github.com/joshuaskelly/vgio/blob/master/vgio/quake/bsp/bsp29.py
 * BSP17 format: https://www.gamers.org/dEngine/quake/spec/quake-spec34/qkspec_4.htm
+* Michael Abrash's black book: https://github.com/jagregory/abrash-black-book
+  
