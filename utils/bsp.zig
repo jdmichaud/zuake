@@ -3,7 +3,7 @@ const std = @import("std");
 
 const stdout = std.io.getStdOut().writer();
 
-fn load(pathname: []const u8) ![]align(1096) const u8 {
+fn load(pathname: []const u8) ![]align(4096) const u8 {
   var file = try std.fs.cwd().openFile(pathname, .{});
   defer file.close();
 
