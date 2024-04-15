@@ -64,6 +64,7 @@ pub const SdlSubsystem = struct {
     if (sx == 0 and sy == 0 and sWidth == self.width and sHeight == self.height) {
       std.mem.copyForwards(u32, buffer[0..image.len], image);
     } else {
+      @setRuntimeSafety(false); // Too slow otherwise
       const ifactor: f32 = @as(f32, @floatFromInt(sWidth)) / @as(f32, @floatFromInt(self.width));
       const jfactor: f32 = @as(f32, @floatFromInt(sHeight)) / @as(f32, @floatFromInt(self.height));
       for (0..self.height) |j| {
@@ -74,6 +75,7 @@ pub const SdlSubsystem = struct {
           buffer[offset + i] = image[imageIndex];
         }
       }
+      @setRuntimeSafety(true);
     }
 
     sdl.SDL_UnlockTexture(texture);
