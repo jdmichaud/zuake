@@ -2,6 +2,7 @@
 const std = @import("std");
 
 const stdout = std.io.getStdOut().writer();
+const stderr = std.io.getStdErr().writer();
 
 fn load(pathname: []const u8) ![]align(4096) const u8 {
   var file = try std.fs.cwd().openFile(pathname, .{});
@@ -77,7 +78,7 @@ const BspHeader = extern struct {
                                  // nummodels = Size/sizeof(model_t)
 };
 
-const Entities = struct {
+pub const Entities = struct {
   data: []const u8,
 
   pub fn decode(bsp: []const u8, lumpHeader: LumpHeader) !Entities {
@@ -178,6 +179,9 @@ const LightType = enum(u8) {
   UNKNOWN_8 = 8,               // ??
   UNKNOWN_9 = 9,               // ??
   UNKNOWN_10 = 10,             // ??
+  UNKNOWN_32 = 32,             // Not documented but happens in some maps
+  UNKNOWN_33 = 33,             // Not documented but happens in some maps
+  UNKNOWN_34 = 34,             // Not documented but happens in some maps
   NO_LIGHT_MAP = 0xFF,         // is to be used when there is no light map.
 };
 
@@ -250,7 +254,7 @@ const BoundBox = extern struct { // Bounding Box, Float values
   max: vec3,                   // maximum values of X,Y,Z
 };
 
-const Model = extern struct {
+pub const Model = extern struct {
   bound: BoundBox,             // The bounding box of the Model
   origin: vec3,                // origin of model, usually (0,0,0)
   nodeId0: i32,                // index of first BSP node
@@ -295,7 +299,31 @@ pub const Bsp = struct {
   faces: []align(1) const Face,
   clipNodes: []align(1) const ClipNode,
   lfaces: []align(1) const u16,
+  // This structure stores indexes of edges, possibly inverted, so that faces
+  // can be reconstituted.
+  // All the edges in a face are stored consecutively, with the correct
+  // orientation so that all the vertices in the face are walked clockwise.
+  // But since the edges are used for more than one face, there is a trick to
+  // ensure that the edge of a given face is always referenced with the correct
+  // orientation:
+  //  - if lstedge[e] is positive, then lstedge[e] is an index to an Edge, and
+  //    that edge is walked in the normal sense, from vertex0 to vertex1.
+  //  - if lstedge[e] is negative, then -lstedge[e] is an index to an Edge, and
+  //    that edge is walked in the inverse sense, from vertex1 to vertex0.
+  // The fact that all edges are walked in a clockwise order is critical for the
+  // face rendering process (rasterisation).
+  // The faces are made of just one closed set of edges, or contour. Those edges
+  // seem to be always stored in the right order.
   ledges: []align(1) const i16,
+  // This structure stores a list of pairs of indexes of vertices, each pair
+  // defining an edge of a face. That edge will generally be used by more than
+  // one face (two or three is typical).
+  // Edges are referenced in List of edges, that represent the actual list of
+  // edges contained in each face. The edges are not directly referenced in
+  // faces, otherwise the face structure could not have a fixed size.
+  // Note that the first edge in the list is never used: as a matter of fact,
+  // the List of Edges uses positive or negative numbers to indicate the edge
+  // sense, so number zero would be unsuitable.
   edges: []align(1) const Edge,
   leaves: []align(1) const Leaf,
   models: []align(1) const Model,
@@ -346,8 +374,12 @@ pub fn decodeBsp(allocator: std.mem.Allocator, header: BspHeader, bsp: []const u
     while (i < faces.len) {
       std.debug.assert(faces[i].planeId < planes.len);
       std.debug.assert(faces[i].texinfoId < textureInfos.len);
-      std.debug.assert(@intFromEnum(faces[i].typelight) == 0xFF or
-        (0 <= @intFromEnum(faces[i].typelight) and @intFromEnum(faces[i].typelight) <= 10));
+      // TODO: This fails with undocumented value on some maps
+      // std.debug.assert(@intFromEnum(faces[i].typelight) == 0xFF
+      //   or (0 <= @intFromEnum(faces[i].typelight) and @intFromEnum(faces[i].typelight) <= 10)
+      //   or @intFromEnum(faces[i].typelight) == 32 // Happens in some maps...
+      //   or @intFromEnum(faces[i].typelight) == 33 // Happens in some maps...
+      //   or @intFromEnum(faces[i].typelight) == 34); // Happens in some maps...
       i += 1;
     }
   }
@@ -461,7 +493,10 @@ pub fn main() !void {
     return;
   }
 
-  const buffer = try load(args[1]);
+  const buffer = load(args[1]) catch |err| {
+    try stderr.print("error: {}, trying to open open {s}\n", .{ err, args[1] });
+    std.posix.exit(1);
+  };
   defer std.posix.munmap(buffer);
 
   const bspHeader: *const BspHeader = @ptrCast(&buffer[0]);

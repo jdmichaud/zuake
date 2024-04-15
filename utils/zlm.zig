@@ -290,7 +290,7 @@ pub fn SpecializeOn(comptime Real: type) type {
       }
 
       pub fn format(value: Self, comptime _: []const u8, _: std.fmt.FormatOptions, stream: anytype) !void {
-        try stream.print("vec2({d:.2}, {d:.2})", .{ value.x, value.y });
+        try stream.print("vec2({d}, {d})", .{ value.x, value.y });
       }
 
       fn getField(vec: Self, comptime index: comptime_int) Real {
@@ -355,7 +355,7 @@ pub fn SpecializeOn(comptime Real: type) type {
       }
 
       pub fn format(value: Self, comptime _: []const u8, _: std.fmt.FormatOptions, stream: anytype) !void {
-        try stream.print("vec3({d:.2}, {d:.2}, {d:.2})", .{ value.x, value.y, value.z });
+        try stream.print("vec3({d}, {d}, {d})", .{ value.x, value.y, value.z });
       }
 
       /// calculates the cross product. result will be perpendicular to a and b.
@@ -463,7 +463,7 @@ pub fn SpecializeOn(comptime Real: type) type {
       }
 
       pub fn format(value: Self, comptime _: []const u8, _: std.fmt.FormatOptions, stream: anytype) !void {
-        try stream.print("vec4({d:.2}, {d:.2}, {d:.2}, {d:.2})", .{ value.x, value.y, value.z, value.w });
+        try stream.print("vec4({d}, {d}, {d}, {d})", .{ value.x, value.y, value.z, value.w });
       }
 
       /// multiplies the vector with a matrix.
@@ -546,7 +546,7 @@ pub fn SpecializeOn(comptime Real: type) type {
 
         inline for (0..4) |i| {
           const row = value.fields[i];
-          try stream.print(" ({d:.2} {d:.2} {d:.2} {d:.2})", .{ row[0], row[1], row[2], row[3] });
+          try stream.print(" ({d} {d} {d} {d})", .{ row[0], row[1], row[2], row[3] });
         }
 
         try stream.writeAll(" }");

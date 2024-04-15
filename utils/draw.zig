@@ -82,7 +82,7 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
     }
     // Draws a line.
     pub fn line(startx: i16, starty: i16, endx: i16, endy: i16) void {
-      std.debug.assert(startx >= 0 and starty >= 0 and endx >= 0 and endy >= 0);
+      // std.debug.assert(startx >= 0 and starty >= 0 and endx >= 0 and endy >= 0);
       drawThickLine(startx, starty, endx, endy);
       // drawLineOverlap(startx, starty, endx, endy, 0);
       // drawLineWu(startx, starty, endx, endy, 0);

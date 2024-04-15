@@ -4,6 +4,12 @@ pub const sdl = @cImport({
   @cInclude("SDL2/SDL.h");
 });
 
+pub const MouseBtn = enum(u3) {
+  LEFT = 1,
+  MIDDLE = 2,
+  RIGHT = 4,
+};
+
 pub const SdlSubsystem = struct {
   const Self = @This();
 
