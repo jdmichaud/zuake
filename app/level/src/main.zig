@@ -12,8 +12,10 @@ const bspModule = @import("bsp.zig");
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
-const WIDTH: u16 = 640;
-const HEIGHT: u16 = 320;
+const WIDTH: i16 = 640;
+const HEIGHT: i16 = 480;
+const VIEWPORT_WIDTH: i16 = 640 * 2;
+const VIEWPORT_HEIGHT: i16 = 480 * 2;
 
 fn load(pathname: []const u8) ![]align(4096) const u8 {
   var file = try std.fs.cwd().openFile(pathname, .{});
@@ -45,6 +47,43 @@ fn getBspOffset(allocator: std.mem.Allocator, buffer: []const u8, mapFilepath: [
   return bspEntry.offset;
 }
 
+const Model = struct {
+  fps: f32,
+};
+
+pub fn update(comptime Context: type, model: Model) void {
+  var buffer_array: [100]u8 = undefined;
+  const buffer: []u8 = buffer_array[0..];
+
+  Context.color = 0xFF000000;
+  Context.clearRect(0, 0, WIDTH, HEIGHT);
+  Context.color = 0xFFFFFFFF;
+  Context.save() catch unreachable;
+  Context.reset();
+  Context.printText(0, 0, std.fmt.bufPrint(buffer, "fps: {d}", .{ model.fps }) catch unreachable);
+  Context.restore();
+  Context.line(0, 0, WIDTH - 1, HEIGHT - 1);
+  Context.line(WIDTH - 1, 0, 0, HEIGHT - 1);
+}
+
+const toCanvas = zlm.Mat4.invert(zlm.Mat4{
+  .fields = [4][4]f32{
+    [4]f32{ VIEWPORT_WIDTH / WIDTH,                         0, 0, 0 },
+    [4]f32{                      0, -VIEWPORT_HEIGHT / HEIGHT, 0, 0 },
+    [4]f32{                      0,                         0, 1, 0 },
+    [4]f32{                      0,                         0, 0, 1 },
+  },
+}) orelse unreachable;
+
+const toViewport: zlm.Mat4 = zlm.Mat4.invert(zlm.Mat4{
+  .fields = [4][4]f32{
+    [4]f32{   1,   0, 0, 0 },
+    [4]f32{   0,  -1, 0, 0 },
+    [4]f32{   0,   0, 1, 0 },
+    [4]f32{   0,   0, 0, 1 },
+  },
+}) orelse unreachable;
+
 pub fn main() !void {
   var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
   const allocator = general_purpose_allocator.allocator();
@@ -71,17 +110,26 @@ pub fn main() !void {
   var bsp = try bspModule.Bsp.init(allocator, pak[try getBspOffset(allocator, pak, mapFilepath)..]);
   defer bsp.deinit(allocator);
 
-  var subsystem = try sdlwrapper.SdlSubsystem.init(640, 480);
+  var subsystem = try sdlwrapper.SdlSubsystem.init(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
   defer subsystem.deinit();
 
   const context = draw.DrawContext(WIDTH, HEIGHT);
-  context.line(0, 0, WIDTH - 1, HEIGHT - 1);
-  context.line(WIDTH - 1, 0, 0, HEIGHT - 1);
-  subsystem.drawImage(&context.buffer, 0, 0, WIDTH, HEIGHT);
+  context.setTransform(1, 0, 0, 1, 0, 0);
+
+  var mousebtns: u3 = 0;
+  const MouseBtn = enum(u3) {
+    LEFT = 1,
+    MIDDLE = 2,
+    RIGHT = 4,
+  };
+
+  var model = Model { .fps = 0 };
 
   var quit = false;
+  var contextDirty = true;
   while (!quit) {
     var event: sdl.SDL_Event = undefined;
+    const then = std.time.microTimestamp();
     while (sdl.SDL_PollEvent(&event) != 0) {
       switch (event.type) {
         sdl.SDL_QUIT => { quit = true; },
@@ -91,9 +139,42 @@ pub fn main() !void {
             else => {},
           }
         },
+        sdl.SDL_MOUSEMOTION => {
+          // std.log.debug("{}", .{ event.motion });
+          if (mousebtns & @intFromEnum(MouseBtn.LEFT) != 0) {
+            // std.log.debug("before {any} yrel {}", .{ context.getTransform(), event.motion.yrel });
+            const translation = zlm.vec4(@floatFromInt(event.motion.xrel), @floatFromInt(event.motion.yrel), 0, 0)
+              .transform(zlm.Mat4.invert(toViewport) orelse unreachable)
+              .transform(toCanvas)
+            ;
+            context.translate(translation.x, translation.y);
+            contextDirty = true;
+            // std.log.debug("after {any}", .{ context.getTransform() });
+          }
+        },
+        sdl.SDL_MOUSEBUTTONDOWN => {
+          // std.log.debug("{}", .{ event.button });
+          mousebtns |= @as(u3, 1) << @as(u2, @intCast(event.button.button - 1));
+        },
+        sdl.SDL_MOUSEBUTTONUP => {
+          // std.log.debug("{}", .{ event.button });
+          mousebtns ^= mousebtns & (@as(u3, 1) << @as(u2, @intCast((event.button.button - 1))));
+        },
         else => {},
       }
-      subsystem.renderScene();
     }
+
+    if (contextDirty) {
+      update(context, model);
+      subsystem.drawImage(&context.buffer, 0, 0, WIDTH, HEIGHT);
+      subsystem.renderScene();
+      contextDirty = false;
+    }
+
+    // Only go for 60fps
+    const timePerFrame = std.time.microTimestamp() - then;
+    model.fps = 1000000.0 / @as(f32, @floatFromInt(timePerFrame));
+    const delay: i32 = 16 - @as(i32, @intCast(@divTrunc(timePerFrame, 1000)));
+    sdl.SDL_Delay(if (delay > 0) @as(u32, @intCast(delay)) else 0);
   }
 }

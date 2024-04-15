@@ -1,7 +1,11 @@
 const std = @import("std");
 
+const fontfile = @embedFile("dos_8x8_font_white.pbm");
+
 pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
   return struct {
+    const Self = @This();
+
     pub const width = pwidth;
     pub const height = pheight;
 
@@ -10,16 +14,130 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
     pub var color: u32 = 0xFFFFFFFF;
     pub var thickness: u32 = 0;
 
-    fn plot(x: i16, y: i16, acolor: u32) void {
+    var _transform: [6]f32 = .{ 1, 0, 0, 1, 0, 0 };
+    const _a = 0; const _b = 1; const _c = 2; const _d = 3; const _e = 4; const _f = 5;
+
+    var stack: [6]f32 = .{ 1, 0, 0, 1, 0, 0 };
+
+    // pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    //   allocator.free(self.font);
+    // }
+
+    // resets (overrides) the current transformation to the identity matrix, and
+    // then invokes a transformation described by the arguments of this method.
+    // This lets you scale, rotate, translate (move), and skew the context.
+    //                                              a c e
+    // The transformation matrix is described by: [ b d f ]
+    //                                              0 0 1
+    pub fn setTransform(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) void {
+      _transform = .{ a, b, c, d, e, f };
+    }
+    // multiplies the current transformation with the matrix described by the
+    // arguments of this method. This lets you scale, rotate, translate (move),
+    // and skew the context.
+    pub fn transform(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) void {
+      _transform[_a] = _transform[_a] * a + _transform[_c] * b;
+      _transform[_b] = _transform[_b] * a + _transform[_d] * b;
+      _transform[_c] = _transform[_a] * c + _transform[_c] * d;
+      _transform[_d] = _transform[_b] * c + _transform[_d] * d;
+      _transform[_e] = _transform[_a] * e + _transform[_c] * f + _transform[_e] * 1;
+      _transform[_f] = _transform[_b] * e + _transform[_d] * f + _transform[_f] * 1;
+    }
+    // retrieves the current transformation matrix being applied to the context.
+    pub fn getTransform() [6]f32 {
+      return _transform;
+    }
+    // Saves the entire state of the canvas by pushing the current state onto a
+    // stack.
+    // ⚠️ Only one level of stack for now.
+    pub fn save() !void {
+      stack = _transform;
+    }
+    // Restores the most recently saved canvas state by popping the top entry
+    // in the drawing state stack. If there is no saved state, this method does
+    // nothing.
+    pub fn restore() void {
+      _transform = stack;
+    }
+    // resets the rendering context to its default state, allowing it to be
+    // reused for drawing something else without having to explicitly reset all
+    // the properties.
+    pub fn reset() void {
+      _transform = .{ 1, 0, 0, 1, 0, 0 };
+    }
+    // adds a translation transformation to the current matrix.
+    pub fn translate(x: f32, y: f32) void {
+      _transform[_e] += x;
+      _transform[_f] += y;
+    }
+    // erases the pixels in a rectangular area by setting them to transparent
+    // black.
+    // ⚠️ Operates in buffer space (do not take the transformation matrix into account)
+    pub fn clearRect(x: i16, y: i16, wwidth: i16, hheight: i16) void {
+      if (x == 0 and y == 0 and wwidth == pwidth and hheight == pheight) {
+        @memset(&buffer, color);
+      } else {
+        @panic("clearReact on sizes different from the canvas is not yet implemented");
+      }
+    }
+    // Draws a line.
+    pub fn line(startx: i16, starty: i16, endx: i16, endy: i16) void {
+      std.debug.assert(startx >= 0 and starty >= 0 and endx >= 0 and endy >= 0);
+      drawThickLine(startx, starty, endx, endy);
+      // drawLineOverlap(startx, starty, endx, endy, 0);
+      // drawLineWu(startx, starty, endx, endy, 0);
+    }
+    // Draws a point.
+    pub fn plot(x: i16, y: i16, acolor: u32) void {
       // std.log.debug("plot x {} y {} width {} height {} index {} buffer.len {}", .{
       //   x, y, width, height,
       //   @as(u16, @bitCast(y)) * width + @as(u16, @bitCast(x)),
       //   buffer.len,
       // });
-      std.debug.assert(x >= 0 and x < width and y >= 0 and y < height);
-      buffer[@as(u16, @bitCast(y)) * width + @as(u16, @bitCast(x))] = acolor;
+      const vx = _transform[_a] * @as(f32, @floatFromInt(x)) + _transform[_c] * @as(f32, @floatFromInt(y)) + _transform[_e];
+      const vy = _transform[_b] * @as(f32, @floatFromInt(x)) + _transform[_d] * @as(f32, @floatFromInt(y)) + _transform[_f];
+      if (vx >= 0 and vx < width and vy >= 0 and vy < height) {
+        buffer[@as(u16, @intFromFloat(vy)) * width + @as(u16, @intFromFloat(vx))] = acolor;
+      }
     }
+    // Writes text at the specified position. x and y specifies the top left
+    // corner of the text box to be printed.
+    pub fn printText(x: i16, y: i16, text: []const u8) void {
+      // @setEvalBranchQuota(10000);
+      const fontparams = comptime lbl: {
+        // Check we deal with a P1 netpbm file (ASCII text)
+        std.debug.assert(fontfile[0] == 'P' and fontfile[1] == '1');
+        // Retrieve width and height
+        var i = 2;
+        while (std.ascii.isWhitespace(fontfile[i])) i += 1;
+        var j = i;
+        while (!std.ascii.isWhitespace(fontfile[j])) j += 1;
+        const fontwidth = try std.fmt.parseInt(usize, fontfile[i..j], 10);
+        i = j;
+        while (std.ascii.isWhitespace(fontfile[i])) i += 1;
+        j = i;
+        while (!std.ascii.isWhitespace(fontfile[j])) j += 1;
+        const fontheight = try std.fmt.parseInt(usize, fontfile[i..j], 10);
+        // Get position of first value
+        while (std.ascii.isWhitespace(fontfile[j])) j += 1;
+        break :lbl .{ fontwidth, fontheight, j };
+      };
 
+      const fontwidth = fontparams[0];
+      const fontindex = fontparams[2];
+
+      for (text, 0..) |c, cindex| {
+        const cusize = @as(usize, @intCast(c));
+        for (0..8) |j| {
+          for (0..8) |i| {
+            // fontwidth + 1 because of the \n
+            if (fontfile[fontindex + j * (fontwidth + 1) + cusize * 8 + i] != '0') {
+              plot(x + @as(i16, @intCast(i)) + @as(i16, @intCast(cindex * 8)), y + @as(i16, @intCast(j)), color);
+            }
+          }
+        }
+      }
+    }
     // Modified Bresenham draw(line) with optional overlap. Required for drawThickLine().
     // Overlap draws additional pixel when changing minor direction. For standard bresenham overlap, choose LINE_OVERLAP_NONE (0).
     //
@@ -327,13 +445,6 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
           i -= 1;
         }
       }
-    }
-
-    pub fn line(startx: i16, starty: i16, endx: i16, endy: i16) void {
-      std.debug.assert(startx >= 0 and starty >= 0 and endx >= 0 and endy >= 0);
-      drawThickLine(startx, starty, endx, endy);
-      // drawLineOverlap(startx, starty, endx, endy, 0);
-      // drawLineWu(startx, starty, endx, endy, 0);
     }
   };
 }
