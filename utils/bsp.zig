@@ -325,7 +325,7 @@ pub const Bsp = struct {
   // face rendering process (rasterisation).
   // The faces are made of just one closed set of edges, or contour. Those edges
   // seem to be always stored in the right order.
-  ledges: []align(1) const i16,
+  ledges: []align(1) const i32,
   // This structure stores a list of pairs of indexes of vertices, each pair
   // defining an edge of a face. That edge will generally be used by more than
   // one face (two or three is typical).
@@ -429,7 +429,7 @@ pub fn decodeBsp(allocator: std.mem.Allocator, header: BspHeader, bsp: []const u
       i += 1;
     }
   }
-  const ledges = try loadLumpArray(i16, bsp, header.ledges);
+  const ledges = try loadLumpArray(i32, bsp, header.ledges);
   const models = try loadLumpArray(Model, bsp, header.models);
   {
     var i: usize = 0;
@@ -536,10 +536,10 @@ pub fn main() !void {
   std.log.debug("faces: {} loaded", .{ bsp.faces.len });
   std.log.debug("light map: 0x{x} ({}) ignored", .{ bsp.header.lightmaps.offset, bspHeader.lightmaps.size });
   std.log.debug("clipNodes: {} loaded", .{ bsp.clipNodes.len });
-  std.log.debug("lfaces: {} loaded", .{ bsp.lfaces.len });
+  std.log.debug("lfaces: {} loaded @0x{x}", .{ bsp.lfaces.len, @intFromPtr(bsp.lfaces.ptr) - @intFromPtr(buffer.ptr) });
   std.log.debug("leaves: {} loaded", .{ bsp.leaves.len });
   std.log.debug("edges: {} loaded", .{ bsp.edges.len });
-  std.log.debug("ledges: {} loaded", .{ bsp.ledges.len });
+  std.log.debug("ledges: {} loaded @0x{x}", .{ bsp.ledges.len, @intFromPtr(bsp.ledges.ptr) - @intFromPtr(buffer.ptr) });
   std.log.debug("models: {} loaded", .{ bsp.models.len });
   std.log.debug("level: {any}", .{ bsp.models[0] });
 
