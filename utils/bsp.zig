@@ -1,3 +1,7 @@
+// A set of bsp decoding functions and an utility for displaying bsp stats.
+// reference:
+//   https://www.gamers.org/dEngine/quake/spec/quake-spec34/qkspec_4.htm#CBSPG
+//
 // clear && zig build-exe -freference-trace bsp.zig && ./bsp ../data/pak/maps/start.bsp
 const std = @import("std");
 
@@ -151,7 +155,7 @@ const Node = extern struct {
   face_num: u16,                // Number of faces in the node
 };
 
-const vec3 = extern struct {
+pub const vec3 = extern struct {
   x: f32,
   y: f32,
   z: f32,
@@ -249,12 +253,14 @@ const Edge = extern struct {
                                //  must be in [0,numvertices[
 };
 
-const BoundBox = extern struct { // Bounding Box, Float values
+pub const BoundBox = extern struct { // Bounding Box, Float values
   min: vec3,                   // minimum values of X,Y,Z
   max: vec3,                   // maximum values of X,Y,Z
 };
 
 pub const Model = extern struct {
+  const Self = @This();
+
   bound: BoundBox,             // The bounding box of the Model
   origin: vec3,                // origin of model, usually (0,0,0)
   nodeId0: i32,                // index of first BSP node
@@ -294,6 +300,11 @@ pub const Bsp = struct {
   mipTexturesHeader: *align(1) const MipTexturesHeader,
   mipTextures: []*align(1) const MipTexture,
   vertices: []align(1) const Vertex,
+  // The BSP tree nodes are used to partition one model (from the List of models)
+  // into a set of independent convex BSP tree Leaves.
+  // All the BSP tree nodes are stored in that same BSP tree node structure,
+  // Though there is in fact one BSP tree per model. But of course no index
+  // should point to nodes that are part of another BSP tree.
   nodes: []align(1) const Node,
   textureInfos: []align(1) const TextureInfo,
   faces: []align(1) const Face,
@@ -326,6 +337,13 @@ pub const Bsp = struct {
   // sense, so number zero would be unsuitable.
   edges: []align(1) const Edge,
   leaves: []align(1) const Leaf,
+  // The name Model refers here to either a big zone, the level, or smaller
+  // independent parts inside that zone, like the grid bars on level TEST1, that
+  // open with a push on the switch.
+  // The level map is divided in one or more Models, which are independent
+  // areas, roughly bounded by two sets of Clip Nodes, and organised internally
+  // around a BSP Tree, that contains the BSP Leaves, which are the actual areas
+  // where entities can be found (like the sectors in DOOM).
   models: []align(1) const Model,
 
   pub fn init(allocator: std.mem.Allocator, buffer: []const u8) !Bsp {
