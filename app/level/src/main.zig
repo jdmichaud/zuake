@@ -106,9 +106,42 @@ const Camera = struct {
 const Model = struct {
   fps: f32,
   bsp: bspModule.Bsp,
+  canvasCS: CanvasCS,
   camera: Camera,
   edges: std.ArrayList(Edge),
+  boundingBox: bspModule.BoundBox,
   mapName: []const u8,
+};
+
+// Switch between Camera <-> Canvas
+const CanvasCS = struct {
+  const Self = @This();
+
+  fromCanvas: zlm.Mat4,
+  toCanvas: zlm.Mat4,
+
+  // Initialize a canvas coordinate system
+  // width and height are the resolution of the canvas.
+  // ratio is the aspect ratio (4/3, 16/9, ...)
+  pub fn init(width: i16, height: i16, ratio: f32) CanvasCS {
+    const fromCanvas = (zlm.Mat4{
+      .fields = [4][4]f32{
+        [4]f32{ 2 * ratio / @as(f32, @floatFromInt(width)),                                   0, 0, -1.0 * ratio },
+        [4]f32{                                          0, 2 / @as(f32, @floatFromInt(height)), 0,           -1 },
+        [4]f32{                                          0,                                   0, 1,            0 },
+        [4]f32{                                          0,                                   0, 0,            1 },
+      },
+    }).transpose();
+    const toCanvas = zlm.Mat4.invert(fromCanvas) orelse @panic("toCanvas non invertible");
+    return CanvasCS {
+      .fromCanvas = fromCanvas,
+      .toCanvas = toCanvas,
+    };
+  }
+
+  pub fn to(self: Self) zlm.Mat4 {
+    return self.toCanvas;
+  }
 };
 
 fn update(comptime Context: type, model: Model) void {
@@ -120,16 +153,26 @@ fn update(comptime Context: type, model: Model) void {
   Context.color = 0xFFFFFFFF;
   Context.save() catch unreachable;
   Context.reset();
-  Context.printText(3, CANVAS_HEIGHT - 8 - 3, std.fmt.bufPrint(buffer, "fps: {d}", .{ model.fps }) catch unreachable);
+  Context.printText(3, CANVAS_HEIGHT - 8 - 3, std.fmt.bufPrint(buffer, "fps: {d:.0}", .{ model.fps }) catch unreachable);
   Context.printText(3, CANVAS_HEIGHT - 16 - 3 - 2, std.fmt.bufPrint(buffer, "map: {s}", .{ model.mapName }) catch unreachable);
   Context.restore();
 
-  const worldToCanvas = model.camera.to().mul(toCanvas);
+  const worldToCanvas = model.camera.to().mul(model.canvasCS.to());
   for (model.edges.items) |edge| {
-    const start = zlm.vec4(edge.start.x, edge.start.y, edge.start.z, 1).transform(worldToCanvas).swizzle("xy");
-    const end = zlm.vec4(edge.end.x, edge.end.y, edge.end.z, 1).transform(worldToCanvas).swizzle("xy");
+    const start = edge.start.transform(worldToCanvas).swizzle("xy");
+    const end = edge.end.transform(worldToCanvas).swizzle("xy");
     Context.line(@intFromFloat(start.x), @intFromFloat(start.y), @intFromFloat(end.x), @intFromFloat(end.y));
   }
+
+  // Draw bounding box
+  Context.color = 0xFFEFD867;
+  const mincorner = zlm.vec4(model.boundingBox.min.x, model.boundingBox.min.y, model.boundingBox.min.z, 1)
+    .transform(worldToCanvas).swizzle("xy");
+  const maxcorner = zlm.vec4(model.boundingBox.max.x, model.boundingBox.max.y, model.boundingBox.max.z, 1)
+    .transform(worldToCanvas).swizzle("xy");
+  Context.rect(@intFromFloat(mincorner.x), @intFromFloat(mincorner.y),
+    @intFromFloat(maxcorner.sub(mincorner).swizzle("x0").length()),
+    @intFromFloat(maxcorner.sub(mincorner).swizzle("y0").length()));
 }
 
 fn cameraTopFromLevel(model: bspModule.Model) Camera {
@@ -162,15 +205,6 @@ fn cameraTopFromLevel(model: bspModule.Model) Camera {
   };
 }
 
-const toCanvas = zlm.Mat4.invert((zlm.Mat4{
-  .fields = [4][4]f32{
-    [4]f32{ (4.0 / 1.5) / @as(f32, @floatFromInt(CANVAS_WIDTH)),                                          0, 0, -1.0 * 4.0 / 3.0 },
-    [4]f32{                                                   0, 2 / @as(f32, @floatFromInt(CANVAS_HEIGHT)), 0,               -1 },
-    [4]f32{                                                   0,                                          0, 1,                0 },
-    [4]f32{                                                   0,                                          0, 0,                1 },
-  },
-}).transpose()) orelse @panic("toCanvas non invertible");
-
 const toViewport: zlm.Mat4 = zlm.Mat4.invert(zlm.Mat4{
   .fields = [4][4]f32{
     [4]f32{ (4.0 / 1.5) / @as(f32, @floatFromInt(VIEWPORT_WIDTH)),                                            0, 0, 0 },
@@ -185,21 +219,26 @@ const Edge = struct {
   end: zlm.Vec4,
 };
 
-fn buildEdges(allocator: std.mem.Allocator, bsp: bspModule.Bsp, model: bspModule.Model) !std.ArrayList(Edge) {
-  var edges = std.ArrayList(Edge).init(allocator);
+fn buildEdges(edges: *std.ArrayList(Edge), bsp: bspModule.Bsp, model: bspModule.Model, ) !void {
   for (@intCast(model.faceId)..@intCast(model.faceId + model.faceNum)) |faceId| {
     const face = bsp.faces[bsp.lfaces[faceId]];
     for (@intCast(face.ledgeId)..@intCast(face.ledgeId + face.ledgeNum)) |ledgeId| {
       const edge = bsp.edges[@abs(bsp.ledges[ledgeId])];
       const vertex0 = bsp.vertices[edge.vertex0];
       const vertex1 = bsp.vertices[edge.vertex1];
-      try edges.append(Edge {
-        .start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
-        .end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
-      });
+      if (bsp.ledges[ledgeId] > 0) {
+        try edges.append(Edge {
+          .start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
+          .end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
+        });
+      } else {
+        try edges.append(Edge {
+          .end = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
+          .start = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
+        });
+      }
     }
   }
-  return edges;
 }
 
 pub fn main() !void {
@@ -234,19 +273,50 @@ pub fn main() !void {
   var subsystem = try sdlwrapper.SdlSubsystem.init(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
   defer subsystem.deinit();
 
+  const canvasCS = CanvasCS.init(CANVAS_WIDTH, CANVAS_HEIGHT, 4.0 / 3.0);
   const context = draw.DrawContext(CANVAS_WIDTH, CANVAS_HEIGHT);
   context.setTransform(1, 0, 0, 1, 0, 0);
 
   var mousebtns: u3 = 0;
 
+  var edges = std.ArrayList(Edge).init(allocator);
+  defer edges.deinit();
+  var boundingBox = bspModule.BoundBox {
+    .min = bspModule.vec3 { .x =  std.math.inf(f64), .y =  std.math.inf(f64), .z =  std.math.inf(f64) },
+    .max = bspModule.vec3 { .x = -std.math.inf(f64), .y = -std.math.inf(f64), .z = -std.math.inf(f64) },
+  };
+  for (bsp.models) |model| {
+    try buildEdges(&edges, bsp, model);
+    if (model.bound.min.x < boundingBox.min.x) {
+      boundingBox.min.x = model.bound.min.x;
+    }
+    if (model.bound.min.y < boundingBox.min.y) {
+      boundingBox.min.y = model.bound.min.y;
+    }
+    if (model.bound.min.z < boundingBox.min.z) {
+      boundingBox.min.z = model.bound.min.z;
+    }
+    if (model.bound.max.x > boundingBox.max.x) {
+      boundingBox.max.x = model.bound.max.x;
+    }
+    if (model.bound.max.y > boundingBox.max.y) {
+      boundingBox.max.y = model.bound.max.y;
+    }
+    if (model.bound.max.z > boundingBox.max.z) {
+      boundingBox.max.z = model.bound.max.z;
+    }
+  }
+  std.log.debug("{} edges loaded", .{ edges.items.len });
+
   var model = Model {
     .fps = 0,
     .bsp = bsp,
+    .canvasCS = canvasCS,
     .camera = cameraTopFromLevel(bsp.models[0]),
-    .edges = try buildEdges(allocator, bsp, bsp.models[0]),
+    .edges = edges,
+    .boundingBox = boundingBox,
     .mapName = (try entities.get("worldspawn")).get("message").?.toString(),
   };
-  defer model.edges.deinit();
 
   var quit = false;
   var contextDirty = true;
