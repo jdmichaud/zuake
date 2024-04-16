@@ -6,8 +6,8 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
   return struct {
     const Self = @This();
 
-    pub const width = pwidth;
-    pub const height = pheight;
+    pub const contextWidth = pwidth;
+    pub const contextHeight = pheight;
 
     pub var buffer = [_]u32 { 0 } ** (pwidth * pheight);
 
@@ -73,12 +73,20 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
     // erases the pixels in a rectangular area by setting them to transparent
     // black.
     // ⚠️ Operates in buffer space (do not take the transformation matrix into account)
-    pub fn clearRect(x: i16, y: i16, wwidth: i16, hheight: i16) void {
-      if (x == 0 and y == 0 and wwidth == pwidth and hheight == pheight) {
+    pub fn clearRect(x: i16, y: i16, width: i16, height: i16) void {
+      if (x == 0 and y == 0 and width == pwidth and height == pheight) {
         @memset(&buffer, color);
       } else {
         @panic("clearReact on sizes different from the canvas is not yet implemented");
       }
+    }
+    // Renders a rectangle with a starting point is at (x, y) and whose size is
+    // specified by width and height.
+    pub fn rect(x: i16, y: i16, width: i16, height: i16) void {
+      line(x, y, x + width, y);
+      line(x + width, y, x + width, y + height);
+      line(x + width, y + height, x, y + height);
+      line(x, y + height, x, y);
     }
     // Draws a line.
     pub fn line(startx: i16, starty: i16, endx: i16, endy: i16) void {
@@ -90,14 +98,14 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
     // Draws a point.
     pub fn plot(x: i16, y: i16, acolor: u32) void {
       // std.log.debug("plot x {} y {} width {} height {} index {} buffer.len {}", .{
-      //   x, y, width, height,
+      //   x, y, contextWidth, contextHeight,
       //   @as(u16, @bitCast(y)) * width + @as(u16, @bitCast(x)),
       //   buffer.len,
       // });
       const vx = _transform[_a] * @as(f32, @floatFromInt(x)) + _transform[_c] * @as(f32, @floatFromInt(y)) + _transform[_e];
       const vy = _transform[_b] * @as(f32, @floatFromInt(x)) + _transform[_d] * @as(f32, @floatFromInt(y)) + _transform[_f];
-      if (vx >= 0 and vx < width and vy >= 0 and vy < height) {
-        buffer[@as(u16, @intFromFloat(vy)) * width + @as(u16, @intFromFloat(vx))] = acolor;
+      if (vx >= 0 and vx < contextWidth and vy >= 0 and vy < contextHeight) {
+        buffer[@as(u16, @intFromFloat(vy)) * contextWidth + @as(u16, @intFromFloat(vx))] = acolor;
       }
     }
     // Writes text at the specified position. x and y specifies the top left
