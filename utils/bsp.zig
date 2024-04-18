@@ -138,6 +138,8 @@ const Vertex = extern struct {
 };
 
 const Node = extern struct {
+  const Self = @This();
+
   planeId: i32,                 // The plane that splits the node
                                 //           must be in [0,numplanes[
   front: u16,                   // If bit15==0, index of Front child node
@@ -151,8 +153,35 @@ const Node = extern struct {
   boundingBoxMaxY: i16,
   boundingBoxMaxZ: i16,
   // bboxshort_t box,              // Bounding box of node and all childs
-  face_id: u16,                 // Index of first Polygons in the node
-  face_num: u16,                // Number of faces in the node
+  faceId: u16,                 // Index of first Polygons in the node
+  faceNum: u16,                // Number of faces in the node
+
+  const FaceIterator = struct {
+    const ItSelf = @This();
+
+    bsp: Bsp,
+    faceId: u16,
+    faceNum: u16,
+    currentFace: u16,
+
+    pub fn next(itself: *ItSelf) ?Face {
+      if (itself.currentFace >= itself.faceId + itself.faceNum) {
+        return null;
+      }
+      const face = itself.bsp.faces[itself.currentFace];
+      itself.currentFace += 1;
+      return face;
+    }
+  };
+
+  pub fn faceIterator(self: Self, bsp: Bsp) FaceIterator {
+    return FaceIterator{
+      .bsp = bsp,
+      .faceId = self.faceId,
+      .faceNum = self.faceNum,
+      .currentFace = self.faceId,
+    };
+  }
 };
 
 pub const vec3 = extern struct {
@@ -190,6 +219,8 @@ const LightType = enum(u8) {
 };
 
 const Face = extern struct {
+  const Self = @This();
+
   planeId: u16,                // The plane in which the face lies
                                //           must be in [0,numplanes[
   side: u16,                   // 0 if in front of the plane, 1 if behind the plane
@@ -205,6 +236,34 @@ const Face = extern struct {
   light: [2]u8,                // two additional light models
   lightmap: i32,               // Pointer inside the general light map, or -1
                                // this define the start of the face light map
+
+  const EdgeIterator = struct {
+    const ItSelf = @This();
+
+    bsp: Bsp,
+    ledgeId: i32,
+    ledgeNum: u16,
+    currentLEdge: i32,
+
+    pub fn next(itself: *ItSelf) ?struct { edge: Edge, id: i32 } {
+      if (itself.currentLEdge >= itself.ledgeId + itself.ledgeNum) {
+        return null;
+      }
+      const edgeId = itself.bsp.ledges[@abs(itself.currentLEdge)];
+      const edge = itself.bsp.edges[@abs(edgeId)];
+      itself.currentLEdge += 1;
+      return .{ .edge = edge, .id = edgeId };
+    }
+  };
+
+  pub fn edgeIterator(self: Self, bsp: Bsp) EdgeIterator {
+    return EdgeIterator{
+      .bsp = bsp,
+      .ledgeId = self.ledgeId,
+      .ledgeNum = self.ledgeNum,
+      .currentLEdge = self.ledgeId,
+    };
+  }
 };
 
 const ClipNode = extern struct {
@@ -227,6 +286,8 @@ const LeafType = enum(i32) {
 };
 
 const Leaf = extern struct {
+  const Self = @This();
+
   type: LeafType,              // Special type of leaf
   vislist: i32,                // Beginning of visibility lists
                                //     must be -1 or in [0,numvislist[
@@ -244,6 +305,33 @@ const Leaf = extern struct {
   sndsky: u8,                  //   0    is no sound
   sndslime: u8,                //   0xFF is maximum volume
   sndlava: u8,                 //
+
+  const FaceIterator = struct {
+    const ItSelf = @This();
+
+    bsp: Bsp,
+    lfaceId: u16,
+    lfaceNum: u16,
+    currentLFace: u16,
+
+    pub fn next(itself: *ItSelf) ?Face {
+      if (itself.currentLFace >= itself.lfaceId + itself.lfaceNum) {
+        return null;
+      }
+      const face = itself.bsp.faces[itself.bsp.lfaces[itself.currentLFace]];
+      itself.currentLFace += 1;
+      return face;
+    }
+  };
+
+  pub fn faceIterator(self: Self, bsp: Bsp) FaceIterator {
+    return FaceIterator{
+      .bsp = bsp,
+      .lfaceId = self.lfaceId,
+      .lfaceNum = self.lfaceNum,
+      .currentLFace = self.lfaceId,
+    };
+  }
 };
 
 const Edge = extern struct {
@@ -258,6 +346,15 @@ pub const BoundBox = extern struct { // Bounding Box, Float values
   max: vec3,                   // maximum values of X,Y,Z
 };
 
+pub const NodeTag = enum {
+    Node,
+    Leaf,
+};
+pub const NodeType = union(NodeTag) {
+    Node: Node,
+    Leaf: Leaf,
+};
+
 pub const Model = extern struct {
   const Self = @This();
 
@@ -270,6 +367,141 @@ pub const Model = extern struct {
   numleafs: i32,               // number of BSP leaves
   faceId: i32,                 // index of Faces
   faceNum: i32,                // number of Faces
+
+
+  // Pre order traversal of the tree: Parent -> Left Child -> Right Child
+  const PreOrderNodeIterator = struct {
+    const ItSelf = @This();
+    const MAX_DEPTH = 64;
+
+    bsp: Bsp,
+    // Initialize the node as -1 meaning no node
+    stack: [MAX_DEPTH]i16,
+    head: usize,
+    // How many children of the previous node are in the stack?
+    // Used for skip.
+    childrenOnStack: usize,
+
+    pub fn next(itself: *ItSelf) ?NodeType {
+      if (itself.head == 0) {
+        return null;
+      }
+
+      const currentId = itself.stack[itself.head];
+      itself.head -= 1;
+      itself.childrenOnStack = 0;
+      if (currentId >= 0) {
+        const current = itself.bsp.nodes[@as(usize, @intCast(currentId))];
+        const backId: i16 = @bitCast(current.back);
+        if (backId != -1) {
+          itself.childrenOnStack += 1;
+          itself.head += 1;
+          std.debug.assert(itself.head < ItSelf.MAX_DEPTH);
+          itself.stack[itself.head] = backId;
+        }
+        const frontId: i16 = @bitCast(current.front);
+        if (frontId != -1) {
+          itself.childrenOnStack += 1;
+          itself.head += 1;
+          std.debug.assert(itself.head < ItSelf.MAX_DEPTH);
+          itself.stack[itself.head] = frontId;
+        }
+      }
+
+      return if (@as(u16, @bitCast(currentId)) & 0x8000 == 0)
+        NodeType { .Node = itself.bsp.nodes[@as(usize, @intCast(currentId))] }
+      else
+        NodeType { .Leaf = itself.bsp.leaves[@as(usize, @intCast(~currentId))] };
+
+    }
+
+    pub fn skip(itself: *ItSelf) void {
+      std.debug.assert(itself.head >= itself.childrenOnStack);
+      itself.head -= itself.childrenOnStack;
+      itself.childrenOnStack = 0;
+    }
+  };
+
+  // Initialize an PreOrderNodeIterator
+  pub fn preOrderNodeIterator(self: Self, bsp: Bsp) PreOrderNodeIterator {
+    var it = PreOrderNodeIterator{
+      .bsp = bsp,
+      .head = 0, // means empty stack
+      .stack = [_]i16{ -1 } ** PreOrderNodeIterator.MAX_DEPTH, // Max depth
+      .childrenOnStack = 0,
+    };
+
+    const current: i16 = @intCast(self.nodeId0);
+    if (current != -1) {
+      it.head += 1;
+      std.debug.assert(it.head < PreOrderNodeIterator.MAX_DEPTH);
+      it.stack[it.head] = current;
+    }
+
+    return it;
+  }
+
+  // In order traversal of the tree: Left Child -> Parent -> Right Child
+  // https://www.geeksforgeeks.org/binary-tree-iterator-for-inorder-traversal/
+  // 0x8000 means NULL. 0x8000 == -1.
+  const InOrderNodeIterator = struct {
+    const ItSelf = @This();
+    const MAX_DEPTH = 64;
+
+    bsp: Bsp,
+    // Initialize the node as -1 meaning no node
+    stack: [MAX_DEPTH]i16,
+    head: usize,
+
+    pub fn next(itself: *ItSelf) ?NodeType {
+      if (itself.head == 0) {
+        return null;
+      }
+
+      const currentId = itself.stack[itself.head];
+      itself.head -= 1;
+      if (currentId >= 0) {
+        const current = itself.bsp.nodes[@as(usize, @intCast(currentId))];
+        var nextId: i16 = @bitCast(current.back);
+        while (nextId != -1) {
+          itself.head += 1;
+          std.debug.assert(itself.head < ItSelf.MAX_DEPTH);
+          itself.stack[itself.head] = nextId;
+          nextId = if (nextId >= 0)
+            @bitCast(itself.bsp.nodes[@as(usize, @intCast(nextId))].front)
+          else
+            -1;
+        }
+      }
+
+      return if (@as(u16, @bitCast(currentId)) & 0x8000 == 0)
+        NodeType { .Node = itself.bsp.nodes[@as(usize, @intCast(currentId))] }
+      else
+        NodeType { .Leaf = itself.bsp.leaves[@as(usize, @intCast(~currentId))] };
+    }
+  };
+  // Initialize an InOrderNodeIterator
+  pub fn inOrderNodeIterator(self: Self, bsp: Bsp) InOrderNodeIterator {
+    var it = InOrderNodeIterator{
+      .bsp = bsp,
+      .head = 0, // means empty stack
+      .stack = [_]i16{ -1 } ** InOrderNodeIterator.MAX_DEPTH, // Max depth
+    };
+
+    var current: i16 = @intCast(self.nodeId0);
+    while (current != -1) {
+      it.head += 1;
+      std.debug.assert(it.head < InOrderNodeIterator.MAX_DEPTH);
+      it.stack[it.head] = current;
+      // If current is a leaf we stop
+      current = if (current >= 0)
+        @bitCast(bsp.nodes[@as(usize, @intCast(current))].front)
+      else
+        -1; // 0x8000
+    }
+    return it;
+  }
+
 };
 
 fn loadLumpArray(comptime T: type, bsp: []const u8,
@@ -357,6 +589,7 @@ pub const Bsp = struct {
 
   pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     allocator.free(self.mipTextures);
+    self.* = undefined;
   }
 };
 
@@ -548,4 +781,13 @@ pub fn main() !void {
   // const then = timer.read();
   // try prettyprint(bsp, @intCast(bsp.models[0].nodeId0), 0, stdout);
   // try stdout.print("{d}ms\n", .{ @as(f32, @floatFromInt(timer.read() - then)) / 1000000 });
+
+  var nodeIt = bsp.models[0].preOrderNodeIterator(bsp);
+  while (nodeIt.next()) |entry| {
+    // std.log.debug("{}", .{ node });
+    switch (entry) {
+      NodeType.Node => |node| std.log.debug("node face {}", .{ node.faceId }),
+      NodeType.Leaf => |leaf| std.log.debug("leaf lface {}", .{ leaf.lfaceId }),
+    }
+  }
 }

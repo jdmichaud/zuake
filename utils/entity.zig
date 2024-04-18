@@ -139,6 +139,7 @@ pub const EntityList = struct {
       entityMap.deinit();
     }
     self.allocator.free(self.entities);
+    self.* = undefined;
   }
 
   pub fn get(self: Self, key: []const u8) !EntityMap {

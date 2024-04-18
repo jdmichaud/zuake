@@ -229,16 +229,17 @@ fn update(comptime Context: type, model: Model) void {
   Context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   Context.color = 0xFFFFFFFF;
 
-  const mousePositionInWorld = model.mousePosition
-    .swizzle("xy11")
-    .transform(model.viewportCS.from().mul(model.camera.from()))
-    .swizzle("xy");
+  const mousePositionCamera = model.mousePosition.swizzle("xy01")
+    .transform(model.viewportCS.from());
+  const mousePositionInWorld = mousePositionCamera
+    .transform(model.camera.from());
 
   Context.save() catch unreachable;
   Context.reset();
-  print(Context, 0, 56, "mouse     : {d:.0} {d:.0} (W {d:.1} {d:.1})", .{
+  print(Context, 0, 55, "mouse     : {d:.0} {d:.0} (W {d:.1} {d:.1} C {d:.1} {d:.1})", .{
     model.mousePosition.x, model.mousePosition.y,
-    mousePositionInWorld.x, mousePositionInWorld.y });
+    mousePositionInWorld.x, mousePositionInWorld.y,
+    mousePositionCamera.x, mousePositionCamera.y });
   print(Context, 0, 58, "map       : {s}", .{ model.mapName });
   print(Context, 0, 59, "fps       : {d:.0}", .{ model.fps });
   Context.restore();
@@ -248,39 +249,70 @@ fn update(comptime Context: type, model: Model) void {
     .swizzle("xy11")
     .transform(model.canvasCS.to().mul(model.viewportCS.from()))
     .swizzle("xy");
-  var displayedCount: usize = 0;
-  for (model.edges.items) |edge| {
-    const startc = edge.start.transform(model.camera.to());
-    const endc = edge.end.transform(model.camera.to());
 
-    if ((startc.x < -1 or startc.x > 1 or startc.y < -1 or startc.y > 1) and
-      (endc.x < -1 or endc.x > 1 or endc.y < -1 or endc.y > 1) and
-      std.math.sign(startc.x) == std.math.sign(endc.x) and
-      std.math.sign(startc.y) == std.math.sign(endc.y))
-     continue;
-    displayedCount += 1;
-    const start = startc.transform(model.canvasCS.to()).swizzle("xy");
-    const end = endc.transform(model.canvasCS.to()).swizzle("xy");
-    const seg = end.sub(start);
-    const d = pos.sub(start).dot(seg) / std.math.pow(f32, seg.length(), 2);
-    if (d > 0 and d < 1 and segmentPointDistance(start, end, pos) < 3) {
-      Context.thickness = 2;
-      Context.color = 0xFFE5881E;
-      Context.line(@intFromFloat(start.x), @intFromFloat(start.y), @intFromFloat(end.x), @intFromFloat(end.y));
-      Context.thickness = 1;
-      Context.color = 0xFFFFFFFF;
-      print(Context, 0, 55, "segment   : {}", .{ edge.id });
-    } else {
-      Context.line(@intFromFloat(start.x), @intFromFloat(start.y), @intFromFloat(end.x), @intFromFloat(end.y));
+  var displayedEdgeCount: usize = 0;
+  var displayedNodeCount: usize = 0;
+
+  var it = model.bsp.models[0].preOrderNodeIterator(model.bsp);
+  while (it.next()) |entry| {
+    switch (entry) {
+      bspModule.NodeType.Node => |node| {
+        const nodeMin = zlm.vec4(@floatFromInt(node.boundingBoxMinX), @floatFromInt(node.boundingBoxMinY), @floatFromInt(node.boundingBoxMinZ), 1).transform(model.camera.to());
+        const nodeMax = zlm.vec4(@floatFromInt(node.boundingBoxMaxX), @floatFromInt(node.boundingBoxMaxY), @floatFromInt(node.boundingBoxMaxZ), 1).transform(model.camera.to());
+        if (
+          (nodeMin.x < -1 and nodeMax.x < -1) or (nodeMin.x > 1 and nodeMax.x > 1) or
+          (nodeMin.y < -1 and nodeMax.y < -1) or (nodeMin.y > 1 and nodeMax.y > 1)) {
+          it.skip();
+          continue;
+        }
+
+        displayedNodeCount += 1;
+      },
+      bspModule.NodeType.Leaf => |leaf| {
+        // Check if the cursor is within the boundbox of the leaf
+        const checkSelect = mousePositionInWorld.x > @as(f32, @floatFromInt(leaf.boundingBoxMinX))
+          and mousePositionInWorld.x < @as(f32, @floatFromInt(leaf.boundingBoxMaxX))
+          and mousePositionInWorld.y > @as(f32, @floatFromInt(leaf.boundingBoxMinY))
+          and mousePositionInWorld.y < @as(f32, @floatFromInt(leaf.boundingBoxMaxY));
+        var faceIterator = leaf.faceIterator(model.bsp);
+        while (faceIterator.next()) |face| {
+          var edgeIterator = face.edgeIterator(model.bsp);
+          while (edgeIterator.next()) |e| {
+            displayedEdgeCount += 1;
+            const vertex0 = model.bsp.vertices[e.edge.vertex0];
+            const vertex1 = model.bsp.vertices[e.edge.vertex1];
+
+            // std.log.debug("{d:.0} {d:.0} {d:.0}  {d:.0} {d:.0} {d:.0}", .{ vertex0.X, vertex0.Y, vertex0.Z, vertex1.X, vertex1.Y, vertex1.Z });
+            const start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1).transform(worldToCanvas).swizzle("xy");
+            const end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1).transform(worldToCanvas).swizzle("xy");
+            Context.line(@intFromFloat(start.x), @intFromFloat(start.y), @intFromFloat(end.x), @intFromFloat(end.y));
+
+            if (checkSelect) {
+              const seg = end.sub(start);
+              const d = pos.sub(start).dot(seg) / std.math.pow(f32, seg.length(), 2);
+              if (d > 0 and d < 1 and segmentPointDistance(start, end, pos) < 3) {
+                // Underline the edge below the cursor
+                Context.thickness = 2;
+                Context.color = 0xFFE5881E;
+                Context.line(@intFromFloat(start.x), @intFromFloat(start.y), @intFromFloat(end.x), @intFromFloat(end.y));
+                Context.thickness = 1;
+                Context.color = 0xFFFFFFFF;
+                print(Context, 0, 54, "segment   : {}", .{ e.id });
+              }
+            }
+          }
+        }
+      },
     }
   }
-  print(Context, 0, 57, "disp. edge: {}", .{ displayedCount });
+  print(Context, 0, 56, "disp. node: {}", .{ displayedNodeCount });
+  print(Context, 0, 57, "disp. edge: {}", .{ displayedEdgeCount });
 
   // Draw bounding box
   Context.color = 0xFFEFD867;
-  const mincorner = zlm.vec4(model.boundingBox.min.x, model.boundingBox.min.y, model.boundingBox.min.z, 1)
+  const mincorner = zlm.vec4(model.bsp.models[0].bound.min.x, model.bsp.models[0].bound.min.y, model.bsp.models[0].bound.min.z, 1)
     .transform(worldToCanvas).swizzle("xy");
-  const maxcorner = zlm.vec4(model.boundingBox.max.x, model.boundingBox.max.y, model.boundingBox.max.z, 1)
+  const maxcorner = zlm.vec4(model.bsp.models[0].bound.max.x, model.bsp.models[0].bound.max.y, model.bsp.models[0].bound.max.z, 1)
     .transform(worldToCanvas).swizzle("xy");
   Context.rect(@intFromFloat(mincorner.x), @intFromFloat(mincorner.y),
     @intFromFloat(maxcorner.sub(mincorner).swizzle("x0").length()),
@@ -296,7 +328,7 @@ const Edge = struct {
   end: zlm.Vec4,
 };
 
-fn buildEdges(edges: *std.ArrayList(Edge), bsp: bspModule.Bsp, model: bspModule.Model) !void {
+fn buildEdgesFromModelFaces(edges: *std.ArrayList(Edge), bsp: bspModule.Bsp, model: bspModule.Model) !void {
   for (@intCast(model.faceId)..@intCast(model.faceId + model.faceNum)) |faceId| {
     const face = bsp.faces[faceId];
     for (@intCast(face.ledgeId)..@intCast(face.ledgeId + face.ledgeNum)) |ledgeId| {
@@ -316,6 +348,62 @@ fn buildEdges(edges: *std.ArrayList(Edge), bsp: bspModule.Bsp, model: bspModule.
           .start = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
         });
       }
+    }
+  }
+}
+
+fn buildEdgesFromModelBsp(edges: *std.ArrayList(Edge), bsp: bspModule.Bsp, model: bspModule.Model) !void {
+  var it = model.inOrderNodeIterator(bsp);
+  while (it.next()) |entry| {
+    switch (entry) {
+      // bspModule.NodeType.Node => {
+      bspModule.NodeType.Node => |node| {
+        var faceIterator = node.faceIterator(bsp);
+        while (faceIterator.next()) |face| {
+          var edgeIterator = face.edgeIterator(bsp);
+          while (edgeIterator.next()) |e| {
+            const vertex0 = bsp.vertices[e.edge.vertex0];
+            const vertex1 = bsp.vertices[e.edge.vertex1];
+            if (e.id > 0) {
+              try edges.append(Edge {
+                .id = @abs(e.id),
+                .start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
+                .end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
+              });
+            } else {
+              try edges.append(Edge {
+                .id = @abs(e.id),
+                .end = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
+                .start = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
+              });
+            }
+          }
+        }
+      },
+      bspModule.NodeType.Leaf => {
+      // bspModule.NodeType.Leaf => |leaf| {
+      //   var faceIterator = leaf.faceIterator(bsp);
+      //   while (faceIterator.next()) |face| {
+      //     var edgeIterator = face.edgeIterator(bsp);
+      //     while (edgeIterator.next()) |e| {
+      //       const vertex0 = bsp.vertices[e.edge.vertex0];
+      //       const vertex1 = bsp.vertices[e.edge.vertex1];
+      //       if (e.id > 0) {
+      //         try edges.append(Edge {
+      //           .id = @abs(e.id),
+      //           .start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
+      //           .end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
+      //         });
+      //       } else {
+      //         try edges.append(Edge {
+      //           .id = @abs(e.id),
+      //           .end = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
+      //           .start = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
+      //         });
+      //       }
+      //     }
+      //   }
+      },
     }
   }
 }
@@ -371,7 +459,7 @@ pub fn main() !void {
     .max = bspModule.vec3 { .x = -std.math.inf(f64), .y = -std.math.inf(f64), .z = -std.math.inf(f64) },
   };
   for (bsp.models) |model| {
-    try buildEdges(&edges, bsp, model);
+    try buildEdgesFromModelBsp(&edges, bsp, model);
     if (model.bound.min.x < boundingBox.min.x) {
       boundingBox.min.x = model.bound.min.x;
     }
