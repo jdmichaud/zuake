@@ -96,7 +96,7 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
       // drawLineWu(startx, starty, endx, endy, 0);
     }
     // Draws a point.
-    pub fn plot(x: i16, y: i16, acolor: u32) void {
+    pub inline fn plot(x: i16, y: i16, acolor: u32) void {
       // std.log.debug("plot x {} y {} width {} height {} index {} buffer.len {}", .{
       //   x, y, contextWidth, contextHeight,
       //   @as(u16, @bitCast(y)) * width + @as(u16, @bitCast(x)),

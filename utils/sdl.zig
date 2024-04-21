@@ -69,6 +69,17 @@ pub const SdlSubsystem = struct {
 
     if (sx == 0 and sy == 0 and sWidth == self.width and sHeight == self.height) {
       std.mem.copyForwards(u32, buffer[0..image.len], image);
+    } else if (sWidth * 2 == self.width and sHeight * 2 == self.height) {
+      @setRuntimeSafety(false); // Too slow otherwise
+      for (0..self.height) |j| {
+        const offset = j * self.width;
+        const sourceOffset = j / 2 * sWidth;
+        for (0..self.width) |i| {
+          const imageIndex: usize = sourceOffset + i / 2;
+          buffer[offset + i] = image[imageIndex];
+        }
+      }
+      @setRuntimeSafety(true);
     } else {
       @setRuntimeSafety(false); // Too slow otherwise
       const ifactor: f32 = @as(f32, @floatFromInt(sWidth)) / @as(f32, @floatFromInt(self.width));

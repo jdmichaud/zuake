@@ -139,8 +139,6 @@ const Model = struct {
   canvasCS: CanvasCS,
   viewportCS: ViewportCS,
   camera: Camera,
-  edges: std.ArrayList(Edge),
-  boundingBox: bspModule.BoundBox,
   mapName: []const u8,
   mousePosition: zlm.Vec2,
 };
@@ -236,12 +234,12 @@ fn update(comptime Context: type, model: Model) void {
 
   Context.save() catch unreachable;
   Context.reset();
-  print(Context, 0, 55, "mouse     : {d:.0} {d:.0} (W {d:.1} {d:.1} C {d:.1} {d:.1})", .{
+  print(Context, 0, Context.contextHeight / 8 - 5, "pointer   : {d:.0} {d:.0} (W {d:.1} {d:.1} C {d:.1} {d:.1})", .{
     model.mousePosition.x, model.mousePosition.y,
     mousePositionInWorld.x, mousePositionInWorld.y,
     mousePositionCamera.x, mousePositionCamera.y });
-  print(Context, 0, 58, "map       : {s}", .{ model.mapName });
-  print(Context, 0, 59, "fps       : {d:.0}", .{ model.fps });
+  print(Context, 0, Context.contextHeight / 8 - 2, "map       : {s}", .{ model.mapName });
+  print(Context, 0, Context.contextHeight / 8 - 1, "fps       : {d:.0}", .{ model.fps });
   Context.restore();
 
   const worldToCanvas = model.camera.to().mul(model.canvasCS.to());
@@ -297,7 +295,7 @@ fn update(comptime Context: type, model: Model) void {
                 Context.line(@intFromFloat(start.x), @intFromFloat(start.y), @intFromFloat(end.x), @intFromFloat(end.y));
                 Context.thickness = 1;
                 Context.color = 0xFFFFFFFF;
-                print(Context, 0, 54, "segment   : {}", .{ e.id });
+                print(Context, 0, Context.contextHeight / 8 - 6, "segment   : {}", .{ e.id });
               }
             }
           }
@@ -305,8 +303,8 @@ fn update(comptime Context: type, model: Model) void {
       },
     }
   }
-  print(Context, 0, 56, "disp. node: {}", .{ displayedNodeCount });
-  print(Context, 0, 57, "disp. edge: {}", .{ displayedEdgeCount });
+  print(Context, 0, Context.contextHeight / 8 - 4, "disp. node: {}", .{ displayedNodeCount });
+  print(Context, 0, Context.contextHeight / 8 - 3, "disp. edge: {}", .{ displayedEdgeCount });
 
   // Draw bounding box
   Context.color = 0xFFEFD867;
@@ -327,86 +325,6 @@ const Edge = struct {
   start: zlm.Vec4,
   end: zlm.Vec4,
 };
-
-fn buildEdgesFromModelFaces(edges: *std.ArrayList(Edge), bsp: bspModule.Bsp, model: bspModule.Model) !void {
-  for (@intCast(model.faceId)..@intCast(model.faceId + model.faceNum)) |faceId| {
-    const face = bsp.faces[faceId];
-    for (@intCast(face.ledgeId)..@intCast(face.ledgeId + face.ledgeNum)) |ledgeId| {
-      const edge = bsp.edges[@abs(bsp.ledges[ledgeId])];
-      const vertex0 = bsp.vertices[edge.vertex0];
-      const vertex1 = bsp.vertices[edge.vertex1];
-      if (bsp.ledges[ledgeId] > 0) {
-        try edges.append(Edge {
-          .id = @abs(bsp.ledges[ledgeId]),
-          .start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
-          .end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
-        });
-      } else {
-        try edges.append(Edge {
-          .id = @abs(bsp.ledges[ledgeId]),
-          .end = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
-          .start = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
-        });
-      }
-    }
-  }
-}
-
-fn buildEdgesFromModelBsp(edges: *std.ArrayList(Edge), bsp: bspModule.Bsp, model: bspModule.Model) !void {
-  var it = model.inOrderNodeIterator(bsp);
-  while (it.next()) |entry| {
-    switch (entry) {
-      // bspModule.NodeType.Node => {
-      bspModule.NodeType.Node => |node| {
-        var faceIterator = node.faceIterator(bsp);
-        while (faceIterator.next()) |face| {
-          var edgeIterator = face.edgeIterator(bsp);
-          while (edgeIterator.next()) |e| {
-            const vertex0 = bsp.vertices[e.edge.vertex0];
-            const vertex1 = bsp.vertices[e.edge.vertex1];
-            if (e.id > 0) {
-              try edges.append(Edge {
-                .id = @abs(e.id),
-                .start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
-                .end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
-              });
-            } else {
-              try edges.append(Edge {
-                .id = @abs(e.id),
-                .end = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
-                .start = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
-              });
-            }
-          }
-        }
-      },
-      bspModule.NodeType.Leaf => {
-      // bspModule.NodeType.Leaf => |leaf| {
-      //   var faceIterator = leaf.faceIterator(bsp);
-      //   while (faceIterator.next()) |face| {
-      //     var edgeIterator = face.edgeIterator(bsp);
-      //     while (edgeIterator.next()) |e| {
-      //       const vertex0 = bsp.vertices[e.edge.vertex0];
-      //       const vertex1 = bsp.vertices[e.edge.vertex1];
-      //       if (e.id > 0) {
-      //         try edges.append(Edge {
-      //           .id = @abs(e.id),
-      //           .start = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
-      //           .end = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
-      //         });
-      //       } else {
-      //         try edges.append(Edge {
-      //           .id = @abs(e.id),
-      //           .end = zlm.vec4(vertex0.X, vertex0.Y, vertex0.Z, 1),
-      //           .start = zlm.vec4(vertex1.X, vertex1.Y, vertex1.Z, 1),
-      //         });
-      //       }
-      //     }
-      //   }
-      },
-    }
-  }
-}
 
 pub fn segmentPointDistance(start: zlm.Vec2, end: zlm.Vec2, point: zlm.Vec2) f32 {
   return @abs((end.x - start.x) * (point.y - start.y) - (point.x - start.x) * (end.y - start.y))
@@ -452,42 +370,12 @@ pub fn main() !void {
 
   var mousebtns: u3 = 0;
 
-  var edges = std.ArrayList(Edge).init(allocator);
-  defer edges.deinit();
-  var boundingBox = bspModule.BoundBox {
-    .min = bspModule.vec3 { .x =  std.math.inf(f64), .y =  std.math.inf(f64), .z =  std.math.inf(f64) },
-    .max = bspModule.vec3 { .x = -std.math.inf(f64), .y = -std.math.inf(f64), .z = -std.math.inf(f64) },
-  };
-  for (bsp.models) |model| {
-    try buildEdgesFromModelBsp(&edges, bsp, model);
-    if (model.bound.min.x < boundingBox.min.x) {
-      boundingBox.min.x = model.bound.min.x;
-    }
-    if (model.bound.min.y < boundingBox.min.y) {
-      boundingBox.min.y = model.bound.min.y;
-    }
-    if (model.bound.min.z < boundingBox.min.z) {
-      boundingBox.min.z = model.bound.min.z;
-    }
-    if (model.bound.max.x > boundingBox.max.x) {
-      boundingBox.max.x = model.bound.max.x;
-    }
-    if (model.bound.max.y > boundingBox.max.y) {
-      boundingBox.max.y = model.bound.max.y;
-    }
-    if (model.bound.max.z > boundingBox.max.z) {
-      boundingBox.max.z = model.bound.max.z;
-    }
-  }
-
   var model = Model {
     .fps = 0,
     .bsp = bsp,
     .canvasCS = canvasCS,
     .viewportCS = viewportCS,
     .camera = topCameraFromLevel(bsp.models[0]),
-    .edges = edges,
-    .boundingBox = boundingBox,
     .mapName = if ((try entities.get("worldspawn")).get("message")) |message| message.toString() else "Not a map",
     .mousePosition = zlm.vec2(0, 0),
   };
