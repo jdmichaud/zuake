@@ -142,7 +142,7 @@ pub const EntityList = struct {
     self.* = undefined;
   }
 
-  pub fn get(self: Self, key: []const u8) !EntityMap {
+  pub fn get(self: Self, key: []const u8) ?EntityMap {
     for (self.entities) |entityMap| {
       if (entityMap.get("classname")) |entityValue| {
         if (std.mem.eql(u8, entityValue.toString(), key)) {
@@ -151,7 +151,7 @@ pub const EntityList = struct {
       }
     }
 
-    return error.NotFound;
+    return null;
   }
 };
 
@@ -182,5 +182,5 @@ pub fn main() !void {
   var entities = try EntityList.init(allocator, bsp.entities);
   defer entities.deinit();
 
-  std.log.debug("{s}", .{ (try entities.get("worldspawn")).get("message").?.toString() });
+  std.log.debug("{s}", .{ entities.get("worldspawn").?.get("message").?.toString() });
 }
