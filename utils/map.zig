@@ -433,10 +433,7 @@ pub fn main() !void {
     return;
   }
   const mapfilepath = args[1];
-
-  const bspFilepath = mapfilepath;
-
-  const buffer = load(bspFilepath) catch |err| {
+  const buffer = load(mapfilepath) catch |err| {
     try stderr.print("error: {}, trying to open open {s}\n", .{ err, args[1] });
     std.posix.exit(1);
   };

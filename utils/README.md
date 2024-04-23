@@ -10,3 +10,4 @@
 * bin: loads a 80x25 DOS screen and display it on a unix terminal
 * map: loads original quake map file
 * entity: displays the entities in from a bsp file
+* wad2: loads a WAD2 file
