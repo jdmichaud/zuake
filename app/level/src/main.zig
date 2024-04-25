@@ -1,8 +1,7 @@
 // clear && zig build -freference-trace && echo "ready" && zig-out/bin/level ../../data/quake106/id1/pak0.pak "maps/start.bsp"
 const std = @import("std");
 
-const sdlwrapper = @import("sdl.zig");
-const sdl = sdlwrapper.sdl;
+const ioAdapter = @import("io-adapter.zig");
 const zlm = @import("zlm.zig").SpecializeOn(f32);
 
 const draw = @import("draw.zig");
@@ -360,8 +359,8 @@ pub fn main() !void {
   var entities = try entityModule.EntityList.init(allocator, bsp.entities);
   defer entities.deinit();
 
-  var subsystem = try sdlwrapper.SdlSubsystem.init(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
-  defer subsystem.deinit();
+  var sdlAdapter = try ioAdapter.SDLAdapter.init(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+  defer sdlAdapter.deinit();
 
   const canvasCS = CanvasCS.init(CANVAS_WIDTH, CANVAS_HEIGHT, 4.0 / 3.0);
   const viewportCS = ViewportCS.init(VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 4.0 / 3.0);
@@ -376,29 +375,27 @@ pub fn main() !void {
     .canvasCS = canvasCS,
     .viewportCS = viewportCS,
     .camera = topCameraFromLevel(bsp.models[0]),
-    .mapName = if ((try entities.get("worldspawn")).get("message")) |message| message.toString() else "Not a map",
+    .mapName = if (entities.get("worldspawn").?.get("message")) |message| message.toString() else "Not a map",
     .mousePosition = zlm.vec2(0, 0),
   };
 
   var quit = false;
   var contextDirty = true;
   while (!quit) {
-    var event: sdl.SDL_Event = undefined;
     const then = std.time.microTimestamp();
-    while (sdl.SDL_PollEvent(&event) != 0) {
-      switch (event.type) {
-        sdl.SDL_QUIT => { quit = true; },
-        sdl.SDL_KEYDOWN => {
-          switch (event.key.keysym.sym) {
-            sdl.SDLK_ESCAPE => quit = true,
+    while (sdlAdapter.interface.getEvent()) |event| {
+      switch (event) {
+        ioAdapter.EventType.KeyDown => |keyEvent| {
+          switch (keyEvent.scancode) {
+            ioAdapter.Scancode.ESCAPE => quit = true,
             else => {},
           }
         },
-        sdl.SDL_MOUSEMOTION => {
-          model.mousePosition.x = @floatFromInt(event.motion.x);
-          model.mousePosition.y = @floatFromInt(event.motion.y);
-          if (mousebtns & @intFromEnum(sdlwrapper.MouseBtn.LEFT) != 0) {
-            const translation = zlm.vec4(@floatFromInt(-event.motion.xrel), @floatFromInt(-event.motion.yrel), 0, 0)
+        ioAdapter.EventType.MouseMove => |payload| {
+          model.mousePosition.x = @floatFromInt(payload.x);
+          model.mousePosition.y = @floatFromInt(payload.y);
+          if (mousebtns & @intFromEnum(ioAdapter.MouseButton.Left) != 0) {
+            const translation = zlm.vec4(@floatFromInt(-payload.dx), @floatFromInt(-payload.dy), 0, 0)
               .transform(model.viewportCS.from())
               .transform(model.camera.from());
 
@@ -406,14 +403,14 @@ pub fn main() !void {
           }
           contextDirty = true;
         },
-        sdl.SDL_MOUSEBUTTONDOWN => {
-          mousebtns |= @as(u3, 1) << @as(u2, @intCast(event.button.button - 1));
+        ioAdapter.EventType.MouseDown => |payload| {
+          mousebtns |= @as(u3, 1) << @as(u2, @intCast(@intFromEnum(payload.button) - 1));
         },
-        sdl.SDL_MOUSEBUTTONUP => {
-          mousebtns ^= mousebtns & (@as(u3, 1) << @as(u2, @intCast((event.button.button - 1))));
+        ioAdapter.EventType.MouseUp => |payload| {
+          mousebtns ^= mousebtns & (@as(u3, 1) << @as(u2, @intCast((@intFromEnum(payload.button) - 1))));
         },
-        sdl.SDL_MOUSEWHEEL => {
-          model.camera.zoom(if (event.wheel.y > 0) 0.9 else 1.1);
+        ioAdapter.EventType.MouseWheel => |payload| {
+          model.camera.zoom(if (payload.y > 0) 0.9 else 1.1);
           contextDirty = true;
         },
         else => {},
@@ -422,8 +419,8 @@ pub fn main() !void {
 
     if (contextDirty) {
       update(context, model);
-      subsystem.drawImage(&context.buffer, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      subsystem.renderScene();
+      sdlAdapter.interface.drawImage(&context.buffer, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      sdlAdapter.interface.renderScene();
       contextDirty = false;
     }
 
@@ -433,6 +430,6 @@ pub fn main() !void {
       model.fps = model.fps * 0.9 + 1000000.0 / @as(f32, @floatFromInt(timePerFrame)) * 0.1;
     }
     const delay: i32 = 16 - @as(i32, @intCast(@divTrunc(timePerFrame, 1000)));
-    sdl.SDL_Delay(if (delay > 0) @as(u32, @intCast(delay)) else 0);
+    std.time.sleep(if (delay > 0) @as(u32, @intCast(delay)) else 0);
   }
 }
