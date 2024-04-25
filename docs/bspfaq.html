@@ -1,0 +1,1132 @@
+<html>
+<body bgcolor="#ffffff">
+<TITLE>BSP Tree FAQ</TITLE>
+<H1>BSP Tree Frequently Asked Questions (FAQ)</H1>
+<body>
+<hr>
+<h2><A href="/cgi-bin/bspforum/list/">Forum</a></h2>
+<ul>
+A new experimental discussion area for BSP trees.
+</ul>
+<h2><A href="/bspfaq/">Indexed Listing</a></h2>
+<ul>
+An indexed version of this document is available for those who prefer faster loading.
+</ul><hr>
+<! this document is assembled automatically >
+<h2>Questions</h2>
+<ol>
+	<li><a href="#1.txt">Changes</a>
+	<li><a href="#2.txt">About this document</a>
+	<li><a href="#3.txt">Acknowledgements</a>
+	<li><a href="#4.txt">How can you contribute?</a>
+	<li><a href="#5.txt">About the pseudo C++ code</a>
+	<li><a href="#6.txt">What is a BSP Tree?</a>
+	<li><a href="#7.txt">How do you build a BSP Tree?</a>
+	<li><a href="#8.txt">How do you partition a polygon with a plane?</a>
+	<li><a href="#9.txt">How do you remove hidden surfaces with a BSP Tree?</a>
+	<li><a href="#10.txt">How do you compute analytic visibility with a BSP Tree?</a>
+	<li><a href="#11.txt">How do you accelerate ray tracing with a BSP Tree?</a>
+	<li><a href="#12.txt">How do you perform boolean operations on polytopes with a BSP Tree?</a>
+	<li><a href="#13.txt">How do you perform collision detection with a BSP Tree?</a>
+	<li><a href="#14.txt">How do you handle dynamic scenes with a BSP Tree?</a>
+	<li><a href="#15.txt">How do you compute shadows with a BSP Tree?</a>
+	<li><a href="#16.txt">How do you extract connectivity information from BSP Trees?</a>
+	<li><a href="#17.txt">How are BSP Trees useful for robot motion planning?</a>
+	<li><a href="#18.txt">How are BSP Trees used in DOOM?</a>
+	<li><a href="#19.txt">How can you make a BSP Tree more robust?</a>
+	<li><a href="#20.txt">How efficient is a BSP Tree?</a>
+	<li><a href="#21.txt">How can you make a BSP Tree more efficient?</a>
+	<li><a href="#22.txt">How can you avoid recursion?</a>
+	<li><a href="#23.txt">What is the history of BSP Trees?</a>
+	<li><a href="#24.txt">Where can you find sample code and related online resources?</a>
+	<li><a href="#25.txt">References</a>
+</ol>
+<hr>
+<h2>Answers</h2>
+<ol>
+	<font size=+1><b><li><a name="1.txt">Changes</a></b></font><p>
+<table width=80%>
+<tr><th>Date</th><th>Section</th><th>Change</th></tr>
+<tr><td colspan=3><hr></td></tr>
+
+<tr><td><b>10/09/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>Added a reference to GFX, a general graphics programming resource.<br>Added a reference to John Whitley's BSP tree tutorial page.</td></tr>
+
+<tr><td><b>10/07/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/bspfaq/def.html">Definitions</a></td><td>Added new definitions page to clarify some difficult terms.</td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?11.txt">Ray Tracing</a></td><td>Added a note about using the parent node of the ray origin as a hint for improving run-time performance.</td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?20.txt">Efficiency</a></td><td>Corrected a long standing error in the stated complexity of BSP trees for Hidden Surface Removal.</td></tr>
+
+<tr><td><b>10/06/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?2.txt">About</a></td><td>Added new sub-sections describing the intended audience for the FAQ, and guidelines for obtaining assistance from the FAQ maintainer.</td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?6.txt">Definition</a></td><td>Began to re-word the overview of BSP trees in an attempt to make the definition clearer.</td></tr>
+
+<tr><td><b>08/21/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>Added a reference to Paton Lewis's Java based BSP tree demo applet.</td></tr>
+
+<tr><td><b>08/07/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>Added a reference to the Win95 BSP Tree Demo Application.</td></tr>
+
+<tr><td><b>07/24/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>Added reference to Michael Abrash's ftp site at Id.</td></tr>
+
+<tr><td><b>07/11/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>Added reference to Andrea Marchini and Stefano Tommesani's BSP tree compiler page.</td></tr>
+
+<tr><td><b>05/01/96</b><br></td></tr>
+<tr><td></td><td>General</a></td><td>The FAQ articles may now be annotated using the forum mechanism.</td></tr>
+
+<tr><td><b>04/28/96</b><br></td></tr>
+<tr><td></td><td><a href="/bspfaq/forum.html">Forum</a></td><td>Experimental new discussion area for BSP trees.</td></tr>
+
+<tr><td><b>04/24/96</b><br></td></tr>
+<tr><td></td><td>General</td><td>Added "Next" and "Previous" links on each page of the FAQ.</td></tr>
+
+<tr><td><b>04/17/96</b><br></td></tr>
+<tr><td></td><td><a href="/bspfaq/whole.html">Whole FAQ</a></td><td>The web search engines have been pointing a lot of people at the entire listing version of the FAQ, rather than at the indexed version. This has led to significantly increased load on our server, and slow response times. As a result, I have made it possible to view the whole document only by following the link from the index page.</td></tr>
+
+<tr><td><b>04/12/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>Update on A.T. Campbell's resources</td></tr>
+
+<tr><td><b>04/08/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?22.txt">Eliminating Recursion</a></td><td>Initial Draft with code example</td></tr>
+<tr><td><b>03/25/96</b><br></td></tr>
+<tr><td></td><td>General</td><td>White pages</td></tr>
+<tr><td><b>03/22/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>A.T. Campbell's home page<br>Update Mel Slater's location</td></tr>
+<tr><td><b>03/21/96</b><br></td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?4.txt">Contribution</a></td><td>Corrected e-mail address</td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?24.txt">Online Resources</a></td><td>Arcball FTP site<br>Paper by John Holmes, Jr.</td></tr>
+<tr><td><b>02/19/96</b><br></td></tr>
+<tr><td></td><td>Changes</td><td>NEW</td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?11.txt">Ray Tracing</a></td><td>Draft implementation notes</td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?10.txt">Analytic Visibility</a></td><td>Draft contents</td></tr>
+<tr><td></td><td><a href="http://www.qualia.com/cgi-bin/bspfaq/bsp?12.txt">Boolean Operations</a></td><td>Spelling corrections</td></tr>
+</table>
+
+		<br>--<br><i>Last Update: 10/09/96 10:49:44</i><p>
+
+	<font size=+1><b><li><a name="2.txt">About this document</a></b></font><p>
+<b>General</b><br>
+The purpose of this document is to provide answers to Frequently Asked Questions about Binary Space Partitioning (BSP) Trees. The intended audience for this document has a working knowledge of computer graphics principles such as viewing transformations, clipping, and polygons. The intended audience also has knowledge of binary searching and sorting trees as covered in most computer algorithms textbooks.<p>
+
+A pointer to this document will be posted monthly to <a href="news:comp.graphics.algorithms">comp.graphics.algorithms</a> and <a href="news:rec.games.programmer">rec.games.programmer</a>. It is available via WWW at the URL:<p>
+<ul>
+	<a href="http://www.qualia.com/bspfaq/">http://www.qualia.com/bspfaq/</a>
+</ul><p>
+
+The most recent newsgroup posting of this document is available via ftp at the following URLs:<p>
+<ul>
+	<a href="file://www.qualia.com/pub/bspfaq/bspfaq.txt">file://www.qualia.com/pub/bspfaq/bspfaq.txt</a><br>
+	<a href="ftp://rtfm.mit.edu/pub/usenet/news.answers/graphics/bsptree-faq">ftp://rtfm.mit.edu/pub/usenet/news.answers/graphics/bsptree-faq</a>
+</ul><p>
+
+
+<b>Requesting the FAQ by mail</b><br>
+You can request that the FAQ be mailed to you in plain text and HTML formats by sending e-mail to <a href="mailto:bspfaq@qualia.com">bspfaq@qualia.com</a> with a subject line of "SEND BSP TREE [what]". The "[what]" should be replaced with any combination of "TEXT" and "HTML". Respectively, these will return to you a plain text version of the FAQ, and an HTML formatted version of the FAQ viewable with Mosaic, Internet Explorer, or Netscape.<p>
+
+<b>About the maintainer</b><br>
+This document is maintained by <a href="/~bwade/">Bretton Wade</a>, lead developer for <a href="/">Qualia, Incorporated</a>, and a graduate of the <a href="http://www.graphics.cornell.edu/">Cornell University Program of Computer Graphics</a>. This resource is provided as a service to the computing community in the interest of disseminating useful information. Mr. Wade considers any personal exchange regarding BSP tree related technology to be confidential and not part of the business of Qualia, Incorporated.<p>
+
+<b>Requesting assistance</b><br>
+The BSP tree FAQ maintainer receives a large number of requests for assistance. The maintainer makes every effort to respond to individual requests, but this is not always possible. There are several steps that you can take to insure a timely reply. First, be sure that any request for assistance is accompanied by a valid reply address. Second, try to limit your question to the topic of BSP trees. Third, if you are including source code, send only the portions necessary to illustrate your difficulty.<p>
+
+If you do not receive a reply within a reasonable amount of time, it most likely that your reply e-mail address is invalid. If you did not get an acknowledgement from the auto-responder, then you can be sure this is the case. Check your return address and try again.<p>
+
+<b>Copyrights and distribution</b><br>
+This document, and all its associated parts, are Copyright &copy 1995-96, Bretton Wade.  All rights reserved.  Permisson to distribute this collection, in part or full, via electronic means (emailed, posted or archived) or printed copy are granted providing that no charges are involved, reasonable attempt is made to use the most current version, and all credits and copyright notices are retained. If you make a link to the WWW page, please inform the maintainer so he can construct reciprocal links.<p>
+
+Requests for other distribution rights, including incorporation in commercial products, such as books, magazine articles, CD-ROMs, and binary applications should be made to <a href="mailto:bspfaq@qualia.com">bspfaq@qualia.com</a>.<p>
+
+<b>Warranty and disclaimer</b><br>
+This article is provided as is without any express or implied warranties.  While every effort has been taken to ensure the accuracy of the information contained in this article, the author/maintainer/contributors assume(s) no responsibility for errors or omissions, or for damages resulting from the use of the information contained herein.<p>
+
+The contents of this article do not necessarily represent the opinions of Qualia, Incorporated.
+		<br>--<br><i>Last Update: 10/07/96 00:18:39</i><p>
+
+	<font size=+1><b><li><a name="3.txt">Acknowledgements</a></b></font><p>
+<b>Web Space</b><br>
+Thank you to <a href="/">Qualia, Incorporated</a> for kindly providing the web space for this document free of charge.<p>
+
+<b>About the contributors</b><br>
+This document would not have been possible without the selfless contributions and efforts of many individuals. I would like to take the opportunity to thank each one of them. Please be aware that these people may not be amenable to recieving e-mail on a random basis. If you have any special questions, please contact <a href="/~bwade/">Bretton Wade</a> (<a href="mailto:bwade@qualia.com">bwade@qualia.com</a> or <a href="mailto:bspfaq@qualia.com">bspfaq@qualia.com</a>) before trying to contact anyone else on this list.<p>
+
+<b>Contributors</b><br>
+<ul type=disc>
+	<li>Bruce Naylor (<a href="mailto:naylor@research.att.com">naylor@research.att.com</a>)
+	<li>Richard Lobb (<a href="mailto:richard@cs.auckland.ac.nz">richard@cs.auckland.ac.nz</a>)
+	<li>Dani Lischinski (<a href="mailto:danix@cs.washington.edu">danix@cs.washington.edu</a>)
+	<li>Chris Schoeneman (<a href="mailto:crs@lightscape.com">crs@lightscape.com</a>)
+	<li>Philip Hubbard (<a href="mailto:pmh@graphics.cornell.edu">pmh@graphics.cornell.edu</a>)
+	<li>Jim Arvo (<a href="mailto:arvo@graphics.cornell.edu">arvo@graphics.cornell.edu</a>)
+	<li>Kevin Ryan (<a href="mailto:kryan@access.digex.net">kryan@access.digex.net</a>)
+	<li>Joseph Fiore (<a href="mailto:fiore@cs.buffalo.edu">fiore@cs.buffalo.edu</a>)
+	<li>Lukas Rosenthaler (<a href="mailto:rosenth@foto.chemie.unibas.ch">rosenth@foto.chemie.unibas.ch</a>)
+	<li>Anson Tsao (<a href="mailto:ansont@hookup.net">ansont@hookup.net</a>)
+	<li>Robert Zawarski (<a href="mailto:zawarski@chaph.usc.edu">zawarski@chaph.usc.edu</a>)
+	<li>Ron Capelli (<a href="mailto:capelli@vnet.ibm.com">capelli@vnet.ibm.com</a>)
+	<li>Eric A. Haines (<a href="mailto:erich@eye.com">erich@eye.com</a>)
+	<li>Ian CR Mapleson (<a href="mailto:mapleson@cee.hw.ac.uk">mapleson@cee.hw.ac.uk</a>)
+	<li>Richard Dorman (<a href="mailto:richard@cs.wits.ac.za">richard@cs.wits.ac.za</a>)
+	<li>Steve Larsen (<a href="mailto:larsen@sunset.cs.utah.edu">larsen@sunset.cs.utah.edu</a>)
+	<li>Timothy Miller (<a href="mailto:tsm@cs.brown.edu">tsm@cs.brown.edu</a>)
+	<li>Ben Trumbore (<a href="mailto:wbt@graphics.cornell.edu">wbt@graphics.cornell.edu</a>)
+	<li>Richard Matthias (<a href="mailto:richardm@cogs.susx.ac.uk">richardm@cogs.susx.ac.uk</a>)
+	<li>Ken Shoemake (<a href="mailto:shoemake@graphics.cis.upenn.edu">shoemake@graphics.cis.upenn.edu</a>)
+	<li>Seth Teller (<a href="mailto:seth@theory.lcs.mit.edu">seth@theory.lcs.mit.edu</a>)
+	<li>Peter Shirley (<a href="mailto:shirley@graphics.cornell.edu">shirley@graphics.cornell.edu</a>)
+	<li>Michael Abrash (<a href="mailto:mikeab@idece2.idsoftware.com">mikeab@idece2.idsoftware.com</a>)
+	<li>Robert Schmidt (<a href="mailto:robert@idt.unit.no">robert@idt.unit.no</a>)
+	<li>Samuel P. Uselton (<a href="mailto:uselton@nas.nasa.gov">uselton@nas.nasa.gov</a>)
+</ul><p>
+If I have neglected to mention your name, and you contributed, please let me know immediately!
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="4.txt">How can you contribute?</a></b></font><p>
+Please send all new questions, corrections, suggestions, and contributions to <a href="mailto:bspfaq@qualia.com">bspfaq@qualia.com</a>.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="5.txt">About the pseudo C++ code</a></b></font><p>
+<b>Overview</b><br>
+The general efficiency of C++ makes it a well suited language for programming computer graphics. Furthermore, the abstract nature of the language allows it to be used effectively as a psuedo code for demonstrative purposes. I will use C++ notation for all the examples in this document.<p>
+
+In order to provide effective examples, it is necessary to assume that certain classes already exist, and can be used without presenting excessive details of their operation. Basic classes such as lists and arrays fall into this category.<p>
+
+Other classes which will be very useful for examples need to be presented here, but the definitions will be generic to allow for freedom of interpretation. I assume points and vectors to each be an array of 3 real numbers (X, Y, Z).<p>
+
+Planes are represented as an array of 4 real numbers (A, B, C, D). The vector (A, B, C) is the normal vector to the plane. Polygons are structures composited from an array of points, which are the vertices, and a plane.<p>
+
+The overloaded operator for a dot product (inner product, scalar product, etc.) of two vectors is the '|' symbol. This has two  advantages, the first of which is that it can't be confused with the scalar multiplication operator. The second is that precedence of C++ operators will usually require that dot product operations be parenthesized, which is consistent with the linear algebra notation for an inner product.<p>
+
+The code for BSP trees presented here is intended to be educational, and may or may not be very efficient. For the sake of clarity, the BSP tree itself will not be defined as a class.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="6.txt">What is a BSP Tree?</a></b></font><p>
+<b>Overview</b> (under development)<br>
+A Binary Space Partitioning (BSP) tree is a standard binary tree used to sort and search for polytopes in n-dimensional space. The tree taken as a whole represents the entire space, and each node in the tree represents a convex subspace. Each node stores a "hyperplane" which divides the space it represents into two halves, and references to two nodes which represent each half. In addition, each node may store one or more polytopes.<p>
+
+It is common to see BSP trees which represent two and three dimensional space, but the definition of the structure is not constrained to these. For these two cases, the polytope stored is a line segment and a polygon, respectively.<p>
+
+<b>Overview</b><br>
+A Binary Space Partitioning (BSP) tree is a data structure that represents a recursive, hierarchical subdivision of n-dimensional space into convex subspaces. BSP tree construction is a process which takes a subspace and partitions it by any hyperplane that intersects the interior of that subspace. The result is two new subspaces that can be further partitioned by recursive application of the method.<p>
+
+A "hyperplane" in n-dimensional space is an n-1 dimensional object which can be used to divide the space into two half-spaces. For example, in three dimensional space, the "hyperplane" is a plane. In two dimensional space, a line is used.<p>
+
+BSP trees are extremely versatile, because they are powerful sorting and classification structures. They have uses ranging from hidden surface removal and ray tracing hierarchies to solid modeling and robot motion planning.<p>
+
+<b>Example</b><br>
+An easy way to think about BSP trees is to limit the discussion to two dimensions. To simplify the situation, let's say that we will use only lines parallel to the X or Y axis, and that we will divide the space equally at each node. For example, given a square somewhere in the XY plane, we select the first split, and thus the root of the BSP Tree, to cut the square in half in the X direction. At each slice, we will choose a line of the opposite orientation from the last one, so the second slice will divide each of the new pieces in the Y direction. This process will continue recursively until we reach a stopping point. The result is shown in the following figure, along with the BSP tree which describes it:<p>
+<img src="/bspfaq/figures/figure_1.gif">
+<p>or the ASCII art version:
+<pre>+-----------+      +-----+-----+      +-----+-----+
+|           |      |     |     |      |     |     |
+|           |      |     |     |      |  d  |     |
+|           |      |     |     |      |     |     |
+|     a     |  ->  |  b  X  c  |  ->  +--Y--+  f  |  -> ...
+|           |      |     |     |      |     |     |
+|           |      |     |     |      |  e  |     |
+|           |      |     |     |      |     |     |
++-----------+      +-----+-----+      +-----+-----+</pre><p>
+<pre>      <b>a</b>                  <b>X</b>                  <b>X</b>           ...
+            <b> </b>          -/ \+     <b> </b>        -/ \+
+            <b> </b>          /   \     <b> </b>        /   \
+                      <b>b</b>     <b>c</b>            <b>Y</b>     <b>f</b>
+            <b>  </b>                         -/ \+
+            <b>  </b>                         /   \
+                                      <b>e</b>     <b>d</b></pre><p>
+<b>Other space partitioning structures</b><br>
+BSP trees are closely related to Quadtrees and Octrees. Quadtrees and Octrees are space partitioning trees which recursively divide subspaces into four and eight new subspaces, respectively. A BSP Tree can be used to simulate both of these structures.
+
+		<br>--<br><i>Last Update: 10/07/96 00:50:54</i><p>
+
+	<font size=+1><b><li><a name="7.txt">How do you build a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+Given a set of polygons in three dimensional space, we want to build a BSP tree which contains all of the polygons. For now, we will ignore the question of how the resulting tree is going to be used.<p>
+
+The algorithm to build a BSP tree is very simple:<p>
+<ol>
+	<li>Select a partition plane.
+	<li>Partition the set of polygons with the plane.
+	<li>Recurse with each of the two new sets.
+</ol><p>
+<b>Choosing the partition plane</b><br>
+The choice of partition plane depends on how the tree will be used, and what sort of efficiency criteria you have for the construction. For some purposes, it is appropriate to choose the partition plane from the input set of polygons. Other applications may benefit more from axis aligned orthogonal partitions.<p>
+
+In any case, you want to evaluate how your choice will affect the results. It is desirable to have a balanced tree, where each leaf contains roughly the same number of polygons. However, there is some cost in achieving this. If a polygon happens to span the partition plane, it will be split into two or more pieces. A poor choice of the partition plane can result in many such splits, and a marked increase in the number of polygons. Usually there will be some trade off between a well balanced tree and a large number of splits.<p>
+
+<b>Partitioning polygons</b><br>
+Partitioning a set of polygons with a plane is done by classifying each member of the set with respect to the plane. If a polygon lies entirely to one side or the other of the plane, then it is not modified, and is added to the partition set for the side that it is on. If a polygon spans the plane, it is split into two or more pieces and the resulting parts are added to the sets associated with either side as appropriate.<p>
+
+<b>When to stop</b><br>
+The decision to terminate tree construction is, again, a matter of the specific application. Some methods terminate when the number of polygons in a leaf node is below a maximum value. Other methods continue until every polygon is placed in an internal node. Another criteria is a maximum tree depth.<p>
+
+<b>Pseudo C++ code example</b><br>
+Here is an example of how you might code a BSP tree:<p>
+
+<pre>struct	BSP_tree
+{
+   plane     partition;
+   list      polygons;
+   BSP_tree  *front,
+             *back;
+};</pre>
+
+This structure definition will be used for all subsequent example code. It stores pointers to its children, the partitioning plane for the node, and a list of polygons coincident with the partition plane. For this example, there will always be at least one polygon in the coincident list: the polygon used to determine the partition plane. A constructor method for this structure should initialize the child pointers to NULL.<p>
+
+<pre>void	Build_BSP_Tree (BSP_tree *tree, list polygons)
+{
+   polygon   *root = polygons.Get_From_List ();
+   tree-&gt;partition = root-&gt;Get_Plane ();
+   tree-&gt;polygons.Add_To_List (root);
+   list      front_list,
+             back_list;
+   polygon   *poly;
+   while ((poly = polygons.Get_From_List ()) != 0)
+   {
+      int   result = tree-&gt;partition.Classify_Polygon (poly);
+      switch (result)
+      {
+         case COINCIDENT:
+            tree-&gt;polygons.Add_To_List (poly);
+            break;
+         case IN_BACK_OF:
+            backlist.Add_To_List (poly);
+            break;
+         case IN_FRONT_OF:
+            frontlist.Add_To_List (poly);
+            break;
+         case SPANNING:
+            polygon   *front_piece, *back_piece;
+            Split_Polygon (poly, tree-&gt;partition, front_piece, back_piece);
+            backlist.Add_To_List (back_piece);
+            frontlist.Add_To_List (front_piece);
+            break;
+      }
+   }
+   if ( ! front_list.Is_Empty_List ())
+   {
+      tree-&gt;front = new BSP_tree;
+      Build_BSP_Tree (tree-&gt;front, front_list);
+   }
+   if ( ! back_list.Is_Empty_List ())
+   {
+      tree-&gt;back = new BSP_tree;
+      Build_BSP_Tree (tree-&gt;back, back_list);
+   }
+}
+</pre>
+
+This routine recursively constructs a BSP tree using the above definition. It takes the first polygon from the input list and uses it to partition the remainder of the set. The routine then calls itself recursively with each of the two partitions. This implementation assumes that all of the input polygons are convex.<p>
+
+One obvious improvement to this example is to choose the partitioning plane more intelligently. This issue is addressed separately in the section, "How can you make a BSP Tree more efficient?".
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="8.txt">How do you partition a polygon with a plane?</a></b></font><p>
+<b>Overview</b><br>
+Partitioning a polygon with a plane is a matter of determining which side of the plane the polygon is on. This is referred to as a front/back test, and is performed by testing each point in the polygon against the plane. If all of the points lie to one side of the plane, then the entire polygon is on that side and does not need to be split. If some points lie on both sides of the plane, then the polygon is split into two or more pieces.<p>
+
+The basic algorithm is to loop across all the edges of the polygon and find those for which one vertex is on each side of the partition plane. The intersection points of these edges and the plane are computed, and those points are used as new vertices for the resulting pieces.<p>
+
+<b>Implementation notes</b><br>
+Classifying a point with respect to a plane is done by passing the (x, y, z) values of the point into the plane equation, Ax + By + Cz + D = 0. The result of this operation is the distance from the plane to the point along the plane's normal vector. It will be positive if the point is on the side of the plane pointed to by the normal vector, negative otherwise. If the result is 0, the point is on the plane.<p>
+
+For those not familiar with the plane equation, The values A, B, and C are the coordinate values of the normal vector. D can be calculated by substituting a point known to be on the plane for x, y, and z.<p>
+
+Convex polygons are generally easier to deal with in BSP tree construction than concave ones, because splitting them with a plane always results in exactly two convex pieces. Furthermore, the algorithm for splitting convex polygons is straightforward and robust. Splitting of concave polygons, especially self intersecting ones, is a significant problem in its own right.<p>
+
+<b>Pseudo C++ code example</b><br>
+Here is a very basic function to split a convex polygon with a plane:<p>
+
+<pre>void Split_Polygon (polygon *poly, plane *part, polygon *&front, polygon *&back)
+{
+   int   count = poly-&gt;NumVertices (),
+         out_c = 0, in_c = 0;
+   point ptA, ptB,
+         outpts[MAXPTS],
+         inpts[MAXPTS];
+   real	sideA, sideB;
+   ptA = poly-&gt;Vertex (count - 1);
+   sideA = part-&gt;Classify_Point (ptA);
+   for (short i = -1; ++i &lt; count;)
+   {
+      ptB = poly-&gt;Vertex (i);
+      sideB = part-&gt;Classify_Point (ptB);
+      if (sideB &gt; 0)
+      {
+         if (sideA &lt; 0)
+         {
+            // compute the intersection point of the line
+            // from point A to point B with the partition
+            // plane. This is a simple ray-plane intersection.
+            vector v = ptB - ptA;
+            real   sect = - part-&gt;Classify_Point (ptA) / (part-&gt;Normal () | v);
+            outpts[out_c++] = inpts[in_c++] = ptA + (v * sect);
+         }
+         outpts[out_c++] = ptB;
+      }
+      else if (sideB &lt; 0)
+      {
+         if (sideA &gt; 0)
+         {
+            // compute the intersection point of the line
+            // from point A to point B with the partition
+            // plane. This is a simple ray-plane intersection.
+            vector v = ptB - ptA;
+            real   sect = - part-&gt;Classify_Point (ptA) / (part-&gt;Normal () | v);
+            outpts[out_c++] = inpts[in_c++] = ptA + (v * sect);
+         }
+         inpts[in_c++] = ptB;
+      }
+      else
+         outpts[out_c++] = inpts[in_c++] = ptB;
+      ptA = ptB;
+      sideA = sideB;
+   }
+   front = new polygon (outpts, out_c);
+   back = new polygon (inpts, in_c);
+}</pre>
+
+A simple extension to this code that is good for BSP trees is to combine its functionality with the routine to classify a polygon with respect to a plane.<p>
+
+Note that this code is not robust, since numerical stability may cause errors in the classification of a point. The standard solution is to make the plane "thick" by use of an <i>epsilon</i> value.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="9.txt">How do you remove hidden surfaces with a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+Probably the most common application of BSP trees is hidden surface removal in three dimensions. BSP trees provide an elegant, efficient method for sorting polygons via a depth first tree walk. This fact can be exploited in a back to front "painter's algorithm" approach to the visible surface problem, or a front to back scanline approach.<p>
+
+BSP trees are well suited to interactive display of static (not moving) geometry because the tree can be constructed as a preprocess. Then the display from any arbitrary viewpoint can be done in linear time. Adding dynamic (moving) objects to the scene is discussed in another section of this document.<p>
+
+<b>Painter's algorithm</b><br>
+The idea behind the painter's algorithm is to draw polygons far away from the eye first, followed by drawing those that are close to the eye. Hidden surfaces will be written over in the image as the surfaces that obscure them are drawn. One condition for a successful painter's algorithm is that there be a single plane which separates any two objects. This means that it might be necessary to split polygons in certain configurations. For example, this case can not be drawn correctly with a painter's algorithm:<p>
+<pre>                          +------+
+                          |      |
+          +---------------|      |--+
+          |               |      |  |
+          |               |      |  |
+          |               |      |  |
+          |      +--------|      |--+
+          |      |        |      |
+       +--|      |--------+      |
+       |  |      |               |
+       |  |      |               |
+       |  |      |               |
+       +--|      |---------------+
+          |      |
+          +------+</pre>
+
+One reason that BSP trees are so elegant for the painter's algorithm is that the splitting of difficult polygons is an automatic part of tree construction. Note that only one of these two polygons needs to be split in order to resolve the problem.<p>
+
+To draw the contents of the tree, perform a back to front tree traversal. Begin at the root node and classify the eye point with respect to its partition plane. Draw the subtree at the far child from the eye, then draw the polygons in this node, then draw the near subtree. Repeat this procedure recursively for each subtree.<p>
+
+<b>Scanline hidden surface removal</b><br>
+It is just as easy to traverse the BSP tree in front to back order as it is for back to front. We can use this to our advantage in a scanline method method by using a write mask which will prevent pixels from being written more than once. This will represent significant speedups if a complex lighting model is evaluated for each pixel, because the painter's algorithm will blindly evaluate the same pixel many times.<p>
+
+The trick to making a scanline approach successful is to have an efficient method for masking pixels. One way to do this is to maintain a list of pixel spans which have not yet been written to for each scan line. For each polygon scan converted, only pixels in the available spans are written, and the spans are updated accordingly.<p>
+
+The scan line spans can be represented as binary trees, which are just one dimensional BSP trees. This technique can be expanded to a two dimensional screen coverage algorithm using a two dimensional BSP tree to represent the masked regions. Any convex partitioning scheme, such as a quadtree, can be used with similar effect.<p>
+
+<b>Implementation notes</b><br>
+When building a BSP tree specifically for hidden surface removal, the partition planes are usually chosen from the input polygon set. However, any arbitrary plane can be used if there are no intersecting or concave polygons, as in the example above.<p>
+
+<b>Pseudo C++ code example</b><br>
+Using the <code>BSP_tree</code> structure defined in the section, "How do you build a BSP Tree?", here is a simple example of a back to front tree traversal:<p>
+
+<pre>void	Draw_BSP_Tree (BSP_tree *tree, point eye)
+{
+   real   result = tree-&gt;partition.Classify_Point (eye);
+   if (result &gt; 0)
+   {
+      Draw_BSP_Tree (tree-&gt;back, eye);
+      tree-&gt;polygons.Draw_Polygon_List ();
+      Draw_BSP_Tree (tree-&gt;front, eye);
+   }
+   else if (result &lt; 0)
+   {
+      Draw_BSP_Tree (tree-&gt;front, eye);
+      tree-&gt;polygons.Draw_Polygon_List ();
+      Draw_BSP_Tree (tree-&gt;back, eye);
+   }
+   else // result is 0
+   {
+      // the eye point is on the partition plane...
+      Draw_BSP_Tree (tree-&gt;front, eye);
+      Draw_BSP_Tree (tree-&gt;back, eye);
+   }
+}</pre>
+
+If the eye point is classified as being on the partition plane, the drawing order is unclear. This is not a problem if the <code>Draw_Polygon_List</code> routine is smart enough to not draw polygons that are not within the viewing frustum. The coincident polygon list does not need to be drawn in this case, because those polygons will not be visible to the user.<p>
+
+It is possible to substantially improve the quality of this example by including the viewing direction vector in the computation. You can determine that entire subtrees are behind the viewer by comparing the view vector to the partition plane normal vector. This test can also make a better decision about tree drawing when the eye point lies on the partition plane. It is worth noting that this improvement resembles the method for tracing a ray through a BSP tree, which is discussed in another section of this document.<p>
+
+Front to back tree traversal is accomplished in exactly the same manner, except that the recursive calls to <code>Draw_BSP_Tree</code> occur in reverse order.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="10.txt">How do you compute analytic visibility with a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+Analytic visibility is a term which describes the list of surfaces visible from a single point in a scene.  Analytic visibility is important to the architectural community because it may be necessary to obtain a visible lines only view of a building for output to a pen plotter. It is also important to the global illumination community because it makes it possible to accurately compute the form factor from a differential area to a patch. Analytic visibility is also used in a preprocessing step to speed up walkthrough renderings for large models.<p>
+
+BSP trees can be used to compute visible fragments of polygons in a scene in at least two different ways. Both methods involve the use of a bsp tree for front to back traversal, and a second tree which describes the visible space in the viewing volume.<p>
+
+<b>Screen partitioning</b><br>
+This method uses a two dimensional BSP tree to partition the viewing plane into regions which have and have not been covered by previously rendered polygons. Whenever a polygon is rendered, it is inserted into the screen tree and clipped to the currently visible region. In the process, the visible region of the polygon is removed from the visible region of the screen.<p>
+
+<b>Beam tree</b><br>
+This method clips each polygon drawn to a beam tree which defines the viewable area. The beam tree originates as a description of the viewing frustum, and is in fact a special kind of BSP tree. When a new polygon is rendered, it is first passed through the beam tree to obtain the visible fragments in a manner very similar to the union operation for boolean modelling. Each fragment is then used to describe a new beam consisting of a series of planes through the eye point and each edge of the fragment. These planes become the hyperplanes used for defining new partitions in the beam tree.<p>
+
+First DRAFT.<p>
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="11.txt">How do you accelerate ray tracing with a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+Ray tracing with a BSP tree is very similar to hidden surface removal with a BSP tree. The algorithm is a simple forward tree walk, with a few additions that apply to ray casting. See Jim Arvo's <a href="/bspfaq/ltvw.html">voxel walking algorithm</a> for ray tracing excerpted from the Ray Tracing News.<p>
+
+<b>Implementation notes</b><br>
+Probably the biggest difference between ray tracing and other applications of BSP trees is that ray tracing does not require splitting of primitives to obtain correct results. This means that the hyperplanes can, and should, be chosen strictly for tree balance.<p>
+
+A large improvement can be made over the voxel walking algorithm for recursive ray tracing by using the parent node of the ray origin as a hint.<p>
+
+Because ray tracing is a spatial classification problem, balancing is the key to performance. Most spatial partitioning schemes for accellerating ray tracing use a criteria called "occupancy", which refers to the number of primitives residing in each partition. A BSP tree which has approximately the same occupancy for all partitions is balanced.<p>
+
+Balancing is discussed elsewhere in this document.<p>
+
+MORE TO COME<p>
+		<br>--<br><i>Last Update: 10/07/96 23:51:46</i><p>
+
+	<font size=+1><b><li><a name="12.txt">How do you perform boolean operations on polytopes with a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+There are two major classes of solid modeling methods with BSP trees. For both methods, it is useful to introduce the notion of an in/out test.<p>
+
+An in/out test is a different way of talking about the front/back test we have been using to classify points with respect to planes. The necessity for this shift in thought is evident when considering polytopes instead of just polygons. A point can not be merely in front or back of a polytope, but inside or outside. Somewhat formally, a point is inside of a polytope if it is inside of, or in back of, each hyperplane which composes the polytope, otherwise it is outside.<p>
+
+<b>Incremental construction</b><br>
+Incremental construction of a BSP Tree is the process of inserting convex polytopes into the tree one by one. Each polytope has to be processed according to the operation desired.<p>
+
+It is useful to examine the construction process in two dimensions. Consider the following figure:<p>
+
+<pre>
+A               B
+ +-------------+
+ |             |
+ |             |
+ |      E      |        F
+ |       +-----+-------+
+ |       |     |       |
+ |       |     |       |
+ |       |     |       |
+ +-------+-----+       |
+D        |      C      |
+         |             |
+         |             |
+         +-------------+
+        H               G
+</pre>
+
+Two polygons, ABCD, and EFGH, are to be inserted into the tree. We wish to find the union of these two polygons. Start by inserting polygon ABCD into the tree, choosing the splitting hyperplanes to be coincident with the edges. The tree looks like this after insertion of ABCD:<p>
+
+<pre>
+                <b>AB</b>
+              -/  \+
+              /    \
+             /      *
+            <b>BC</b>
+          -/  \+
+          /    \
+         /      *
+        <b>CD</b>
+      -/  \+
+      /    \
+     /      *
+    <b>DA</b>
+  -/  \+
+  /    \
+ *      *
+</pre>
+Now, polygon EFGH is inserted into the tree, one polygon at a time. The result looks like this:
+<pre>
+A               B
+ +-------------+
+ |             |
+ |             |
+ |      E      |J       F
+ |       +-----+-------+
+ |       |     |       |
+ |       |     |       |
+ |       |     |       |
+ +-------+-----+       |
+D        |L    :C      |
+         |     :       |
+         |     :       |
+         +-----+-------+
+        H      K        G
+</pre>
+
+<pre>
+                        AB
+                      -/  \+
+                      /    \
+                     /      *
+                    BC
+                  -/  \+
+                  /    \
+                 /      \
+                CD       \   
+              -/  \+      \
+              /    \       \
+             /      \       \
+            DA       \       \
+          -/  \+      \       \
+          /    \       \       \
+         /      *       \       \
+        EJ              KH       \
+      -/  \+          -/  \+      \
+      /    \          /    \       \
+     /      *        /      *       \
+    LE              HL              JF
+  -/  \+          -/  \+          -/  \+
+  /    \          /    \          /    \
+ *      *        *      *        FG     *
+                               -/  \+
+                               /    \
+                              /      *
+                             GK
+                           -/  \+
+                           /    \
+                          *      *
+</pre>
+Notice that when we insert EFGH, we split edges EF and HE along the edges of ABCD. this has the effect of dividing these segments into pieces which are inside ABCD, and outside ABCD. Segments EJ and LE will not be part of the boundary of the union. We could have saved our selves some work by not inserting them into the tree at all. For a union operation, you can always throw away segments that land in inside nodes. You must be careful about this though. What I mean is that any segments which land in inside nodes of the pre-existing tree, not the tree as it is being constructed. EJ and LE landed in an inside node of the tree for polygon ABCD, and so can be discarded.<p>
+
+Our tree now looks like this:
+<pre>
+A               B
+ +-------------+
+ |             |
+ |             |
+ |             |J       F
+ |             +-------+
+ |             |       |
+ |             |       |
+ |             |       |
+ +-------+-----+       |
+D        |L    :C      |
+         |     :       |
+         |     :       |
+         +-----+-------+
+        H      K        G
+</pre>
+<pre>
+                        AB
+                      -/  \+
+                      /    \
+                     /      *
+                    BC
+                  -/  \+
+                  /    \
+                 /      \
+                CD       \   
+              -/  \+      \
+              /    \       \
+             /      \       \
+            DA       \       \
+          -/  \+      \       \
+          /    \       \       \
+         *      *       \       \
+                        KH       \
+                      -/  \+      \
+                      /    \       \
+                     /      *       \
+                    HL              JF
+                  -/  \+          -/  \+
+                  /    \          /    \
+                 *      *        FG     *
+                               -/  \+
+                               /    \
+                              /      *
+                             GK
+                           -/  \+
+                           /    \
+                          *      *
+</pre>
+Now, we would like some way to eliminate the segments JC and CL, so that we will be left with the boundary segments of the union. Examine the segment BC in the tree. What we would like to do is split BC with the hyperplane JF. Conveniently, we can do this by <i>pushing</i> the BC segment through the node for JF. The resulting segments can be classified with the rest of the JF subtree. Notice that the segment BJ lands in an out node, and that JC lands in an in node. Remembering that we can discard interior nodes, we can eliminate JC. The segment BJ replaces BC in the original tree. This process is repeated for segment CD, yielding the segments CL and LD. CL is discarded as landing in an interior node, and LD replaces CD in the original tree. The result looks like this:
+<pre>
+A               B
+ +-------------+
+ |             |
+ |             |
+ |             |J       F
+ |             +-------+
+ |                     |
+ |                     |
+ |        L            |
+ +-------+             |
+D        |             |
+         |             |
+         |             |
+         +-----+-------+
+        H      K        G
+</pre>
+<pre>
+                        AB
+                      -/  \+
+                      /    \
+                     /      *
+                    BJ
+                  -/  \+
+                  /    \
+                 /      \
+                LD       \   
+              -/  \+      \
+              /    \       \
+             /      \       \
+            DA       \       \
+          -/  \+      \       \
+          /    \       \       \
+         *      *       \       \
+                        KH       \
+                      -/  \+      \
+                      /    \       \
+                     /      *       \
+                    HL              JF
+                  -/  \+          -/  \+
+                  /    \          /    \
+                 *      *        FG     *
+                               -/  \+
+                               /    \
+                              /      *
+                             GK
+                           -/  \+
+                           /    \
+                          *      *
+</pre>
+As you can see, the result is the union of the polygons ABCD and EFGH.<p>
+
+To perform other boolean operations, the process is similar. For intersection, you discard segments which land in exterior nodes instead of internal ones. The difference operation is special. It requires that you invert the polytope before insertion. For simple objects, this can be achieved by scaling with a factor of -1. The  insertion process is then conducted as an intersection operation, where segments landing in external nodes are discarded.<p>
+<b>Tree merging</b><br>
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="13.txt">How do you perform collision detection with a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+Detecting whether or not a point moving along a line intersects some object in space is essentially a ray tracing problem. Detecting whether or not two complex objects intersect is something of a tree merging problem.<p>
+
+Typically, motion is computed in a series of <i>Euler</i> steps. This just means that the motion is computed at discrete time intervals using some description of the speed of motion. For any given point P moving from point A with a velocity V, it's location can be computed at time T as P = A + (T * V).<p>
+
+Consider the case where T = 1, and we are computing the motion in one second steps.  To find out if the point P has collided with any part of the scene, we will first compute the endpoints of the motion for this time step. P1 = A + V, and P2 = A + (2 * V). These two endpoints will be classified with respect to the BSP tree. If P1 is outside of all objects, and P2 is inside some object, then an intersection has clearly occurred. However, if P2 is also outside, we still have to check for a collision in between.<p>
+
+Two approaches are possible. The first is commonly used in applications like games, where speed is critical, and accuracy is not. This approach is to recursively divide the motion segment in half, and check the midpoint for containment by some object. Typically, it is good enough to say that an intersection occurred, and not be very accurate about where it occurred.<p>
+
+The second approach, which is more accurate, but also more time consuming, is to treat the motion segment as a ray, and intersect the ray with the BSP Tree. This also has the advantage that the motion resulting from the impact can be computed more accurately.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="14.txt">How do you handle dynamic scenes with a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+So far the discussion of BSP tree structures has been limited to handling objects that don't move. However, because the hidden surface removal algorithm is so simple and efficient, it would be nice if it could be used with dynamic scenes too. Faster animation is the goal for many applications, most especially games.<p>
+
+The BSP tree hidden surface removal algorithm can easily be extended to allow for dynamic objects. For each frame, start with a BSP tree containing all the static objects in the scene, and reinsert the dynamic objects. While this is straightforward to implement, it can involve substantial computation.<p>
+
+If a dynamic object is separated from each static object by a plane, the dynamic object can be represented as a single point regardless of its complexity. This can dramatically reduce the computation per frame because only one node per dynamic object is inserted into the BSP tree. Compare that to one node for every polygon in the object, and the reason for the savings is obvious. During tree traversal, each point is expanded into the original object.<p>
+
+<b>Implementation notes</b><br>
+Inserting a point into the BSP tree is very cheap, because there is only one front/back test at each node. Points are never split, which explains the requirement of separation by a plane. The dynamic object will always be drawn completely in front of the static objects behind it.<p>
+
+A dynamic object inserted into the tree as a point can become a child of either a static or dynamic node. If the parent is a static node, perform a front/back test and insert the new node appropriately. If it is a dynamic node, a different front/back test is necessary, because a point doesn't partition three dimesnional space. The correct front/back test is to simply compare distances to the eye. Once computed, this distance can be cached at the node until the frame is drawn.<p>
+
+An alternative when inserting a dynamic node is to construct a plane whose normal is the vector from the point to the eye. This plane is used in front/back tests just like the partition plane in a static node. The plane should be computed lazily and it is not necessary to normalize the vector.<p>
+
+Cleanup at the end of each frame is easy. A static node can never be a child of a dynamic node, since all dynamic nodes are inserted after the static tree is completed. This implies that all subtrees of dynamic nodes can be removed at the same time as the dynamic parent node.<p>
+
+<b>Caveats</b><br>
+Recent discussion on <a href="news:comp.graphics.algorithms">comp.graphics.algorithms</a> has demonstrated some weaknesses with this approach. In particular, an object modelled as a point may not be rendered in the correct order if the actual object spans a partitioning plane.<p>
+
+<b>Advanced methods</b><br>
+Tree merging, "ghosts", real dynamic trees... MORE TO COME
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="15.txt">How do you compute shadows with a BSP Tree?</a></b></font><p>
+<b>Overview</b><br>
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="16.txt">How do you extract connectivity information from BSP Trees?</a></b></font><p>
+<b>Overview</b><br>
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="17.txt">How are BSP Trees useful for robot motion planning?</a></b></font><p>
+<b>Overview</b><br>
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="18.txt">How are BSP Trees used in DOOM?</a></b></font><p>
+<b>Overview</b><br>
+Before you can understand how DOOM uses a BSP tree to accelerate its rendering
+process, you have to understand how the world is represented in DOOM. When
+someone creates a DOOM level in a level editor they draw linedefs in a 2d
+space. Yes, that's right, DOOM is only 2d. These linedefs (ignoring the
+special effects linedefs) must be arranged so that they form closed polygons.
+One linedef may be used to form the outline of two polygons (in which case it
+is known as a two-sided linedef) and one polygon may be contained within
+another, but no linedefs may cross. Each enclosed area of the world (i.e.
+polygon) is assigned a floor height, ceiling height, floor and ceiling
+textures, a lower texture and an upper texture. The lower texture is visible
+when a linedef is viewed from a direction where the floor is lower in the
+adjoining area. An equivalent thing is true for the upper texture. A set of
+these enclosed areas that all have the same attributes is known as a sector.<p>
+
+When the level is saved by the editor some new information is created
+including the BSP tree for that level. Before the BSP tree can be created, all
+the sectors have to be split into convex polygons known as sub-sectors. If you
+had a sector that was a square area, then that would translate exactly into a
+sub-sector. Whereas if that sector was contained inside another larger square
+sector, the larger one would have to be split into four, four sided
+sub-sectors to make all the sub-sectors convex. When more complex sectors are
+split into sub-sectors the linedefs that bound that sector may need to be
+broken into smaller lengths. These linedef sections are called segs.<p>
+
+Given a point on the 2d map, the renderer (which isn't discussed here) wants
+a list of all the segs that are visible from that viewpoint in closest first
+order. Because of the restrictions placed on the DOOM world, the renderer can
+easily tell when the screen has been filled so it can stop looking for segs
+at this time. This is quicker than rendering all the segs from back to front
+and using a method like painters algorithm.<p>
+
+Each node in the BSP tree defines a partition line (this does not have be a
+linedef in the world but usually is) which is the equivalent to the partition
+plane of a 3d BSP tree. It then has left and right pointers which are either
+another node for further sub-division or a leaf, the leaf being a sub-sector
+in DOOM. The BSP tree in DOOM is effectively being used to sort whole
+sub-sectors rather than individual lines front to back. Each node also defines
+an orthogonal bounding box for each side of the partition. All segs on a
+particular side of the partition must be within that box. This speeds up the
+searching process by allowing whole branches of the tree to be discarded if
+that bounding box isn't visible. The test for visibility is simply if the
+bounding box lies wholly or partly within the cone defined by the left and
+right edges of the screen.<p>
+
+During the display update process the BSP tree is searched starting from the
+node containing the sub-sector that the player is currently in. The search
+moves outwards through the tree (searching the other half of the current node
+before moving onto the other half of the parents node). When a partition
+test is performed the branch chosen is the one on the same side as the player.
+This facilitates the front to back searching. Each time a leaf is encountered
+the segs in that sub-sector are passed to the renderer. If the renderer has
+returned that the screen is filled then the process stops, otherwise it
+continues until the tree has been fully searched (in which case there is an
+error in the level design).<p>
+
+In case you're thinking that it is inefficient to dump a whole sub-sectors
+worth of segs into the renderer at once, the segs in a sub-sector can be
+back-face culled very quickly. DOOM stores the angle of linedefs (of which
+segs are part). When the angle of the players view is calculated this allows
+segs to be culled in a single instruction!  Angles are stored as a 16 bit
+number where 0 is east an 65535 is 1/63336 south of east.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="19.txt">How can you make a BSP Tree more robust?</a></b></font><p>
+<b>Overview</b><br>
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="20.txt">How efficient is a BSP Tree?</a></b></font><p>
+<b>Space complexity</b><br>
+For hidden surface removal, the upper bound is O(n^3). Naylor points out that the geometry which produces this case is not representative of the kinds of scene which are typically used in BSP tree based rendering. The expected case is O(n) for most models.<p>
+
+<b>Time complexity</b><br>
+For hidden surface removal, the expected case is O(n) for most models.
+		<br>--<br><i>Last Update: 10/07/96 23:43:44</i><p>
+
+	<font size=+1><b><li><a name="21.txt">How can you make a BSP Tree more efficient?</a></b></font><p>
+<b>Bounding volumes</b><br>
+Bounding spheres are simple to implement, take only a single plane comparison, using the center of the sphere.<p>
+
+<b>Optimal trees</b><br>
+Construction of an optimal tree is an NP-complete problem. The problem is one of splitting versus tree balancing. These are mutually exclusive requirements. You should choose your strategy for building a good tree based on how you intend to use the tree.<p>
+
+<b>Minimizing splitting</b><br>
+An obvious problem with BSP trees is that polygons get split during the construction phase, which results in a larger number of polygons. Larger numbers of polygons translate into larger storage requirements and longer tree traversal times. This is undesirable in all applications of BSP trees, so some scheme for minimizing splitting will improve tree performance.<p>
+
+Bear in mind that minimization of splitting requires pre-existing knowledge about all of the polygons that will be inserted into the tree. This knowledge may not exist for interactive uses such as solid modelling.<p>
+
+<b>Tree balancing</b><br>
+Tree balancing is important for uses which perform spatial classification of points, lines, and surfaces. This includes ray tracing and solid modelling. Tree balancing is important for these applications because the time complexity for classification is based on the depth of the tree. Unbalanced trees have deeper subtrees, and therefore have a worse worst case.<p>
+
+For the hidden surface problem, balancing doesn't significantly affect runtime. This is because the expected time complexity for tree traversal is linear on the number of polygons in the tree, rather than the depth of the tree.<p>
+
+<b>Balancing vs. splitting</b><br>
+If balancing is an important concern for your application, it will be necessary to trade off some balance for reduced splitting. If you are choosing your hyperplanes from the polygon candidates, then one way to optimize these two factors is to randomly select a small number of candidates. These new candidates are tested against the full list for splitting and balancing efficiency. A linear combination of the two efficiencies is used to rank the candidates, and the best one is chosen.<p>
+
+<b>Reference Counting</b><br>
+<b>Other Optimizations</b><br>
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="22.txt">How can you avoid recursion?</a></b></font><p>
+<b>Overview</b><br>
+A BSP tree resembles a standard binary tree structure in many ways. Using the tree for a painter's algorithm or for ray tracing is a "depth first" traversal of the tree structure. Depth first traversal is traditionally presented as a recursive operation, but can also be performed using an explicit stack.<p>
+<b>Implementation Notes</b><br>
+Depth first traversal is a means of enumerating all of the leaves of a tree in sorted order. This is accomplished by visiting each child of each node in a recursive manner as follows:<p>
+<pre>void    Enumerate (BSP_tree *tree)
+{
+   if (tree->front)
+      Enumerate (tree->front);
+   if (tree->back)
+      Enumerate (tree->back);
+}</pre><p>
+To eliminate the recursion, you have to explicitly model the recursion using a stack. Using a stack of pointers to <code>BSP_tree</code>, you can perform the enumeration like this:<p>
+<pre>void    Enumerate (BSP_tree *tree)
+{
+   Stack  stack;
+   while (tree)
+   {
+      if (tree->back)
+         stack.Push (tree->back);
+      if (tree->front)
+         stack.Push (tree->front);
+      tree = stack.Pop ();
+   }
+}</pre><p>
+On some processors, using a stack will be faster than the recursive method. This is especially true if the recursive routine has a lot of local variables. However, the recursive approach is usually easier to understand and debug, as well as requiring less code.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="23.txt">What is the history of BSP Trees?</a></b></font><p>
+<b>Overview</b><br>
+Neophyte: How did the BSP-Tree come to be?
+<p>
+Sage: Long ago in a small village in Nepal, a minor godling gave a special
+nut to the priests at an out of the way temple.  With the nut, was a
+prophecy: When a group of three gurus, two with red hair, and the
+other who was not what he seemed, came to the temple on pilgrimage, if
+the nut was given unto them, and they nurtured it together, it would
+produce a tree of great benefit to mankind.  Many years later, ...
+<p>
+N: no! No! NO!  The TRUE story.
+<p>
+S: OK.
+<p>
+Long ago (by computer industry standards) in a rapidly growing sunbelt
+city in Texas, a serendipitous convergence of unusual talents and
+personalities occurred.  A brief burst of graphics wonderments
+appeared, and the convergence diverged under its own explosive
+production, leading to further graphics developments in several new
+locations.  One of the wonderous paths followed ...
+<p>
+N: ...No!  The facts!
+<p>
+S: Huh?  Oh you want FACTS.  Boring stuff?
+<p>
+Henry Fuchs started teaching at an essentially brand new campus, the
+University of Texas at Dallas, in January 1975.  He returned to Utah
+to complete his PhD the following summer.  He returned to Dallas and
+taught for the 1975-76, 1976-77 and 1977-78 academic years, before
+being lured away to UNC-Chapel Hill.
+<p>
+Zvi Kedem joined this faculty in the fall of 1975.  He was (and still is
+I suppose) a "theory person," but a special theory person.  He is good
+at applying theory to practical problems.
+<p>
+Bruce Naylor had a bachelors degree from the U of Texas (Austin - "the
+real one"), in philosophy if I recall correctly.  He had talked his
+way into a job at Texas Instruments in Dallas.  (Something about
+philosophy makes you good in logic, which is really the same as
+computers...!?)  He came to UTD to take some computer courses.  He was
+spotted as "good" - probably by Kedem, but I can't swear to it - and
+convinced to become a full time graduate student.
+<p>
+Graphics, of course, is dazzling and wonderful.  Henry was (is) full
+of energy and enthusiasm.  It was natural that he attracted lots of
+the grad students.  Kedem was a perfect complement, providing not only
+the formal rigor and proofs, but also the impetus to "write this part
+up" before going on to "the next thing and the next thing and ..."
+Kedem and Fuchs together (and most of the grad students) also found a
+new thrust in the CS theory community, called computational geometry,
+particularly interesting.  Henry liked to talk about the Schumacker
+priority driven visible surface algorithm when the class got to that
+topic.  He seemed to think there was something more to be done in that
+vein.  Naylor being a grad student in search of a topic, looked into
+it.
+<p>
+The result was two SIGGRAPH papers and Naylor's PhD dissertation, and the
+launch of BSP-trees into the world.  The two papers are
+<p>
+Fuchs, Kedem and Naylor, "Predeterming Visibility Priority in 3-D Scenes"
+SIGGRAPH '79, pp 175-181.  (subtitled "preliminary report")
+<p>
+and 
+<p>
+Fuchs, Kedem and Naylor, "On Visible Surface Generation by A Priori Tree
+Structures" SIGGRAPH '80, pp124-133.
+<p>
+The first paper isn't really BSP-trees, but rather the preliminary work which
+led to BSP-trees as the solution.  The second paper is the "classic" starting
+point referenced in texts, etc.
+<p>
+Both reference Schumacker, Brand, Gilliland and Sharp, "Study for
+Applying Computer-Generated Images to Visual Simulation"
+AFHRL-TR-69-14, US AF Human Resources Lab, 1969
+<p>
+and the description of this algorithm more easily found in 
+<p>
+Sutherland, Sproull and Schumacker, "A Characterization of Ten Hidden
+Surface Algorithms", ACM Computing Surveys, v 6, no 1, pp 1-55.
+<p>
+Naylor finished in 1981 (?) and went to Georgia Tech, and later to
+Bell Labs.  He has continued to work on related and similar ideas with
+a variety of students and collaborators.  Others have also taken the
+ideas in new directions.
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+	<font size=+1><b><li><a name="24.txt">Where can you find sample code and related online resources?</a></b></font><p>
+<b>BSP tree FAQ companion code</b><br>
+The companion source code to this document is available via FTP at:<p>
+<ul type=disc>
+<li><a href="file://ftp.qualia.com/pub/bspfaq/">file://ftp.qualia.com/pub/bspfaq/</a><p>
+</ul>
+or, you can also request that the source be mailed to you by sending e-mail to <a href="mailto:bspfaq@qualia.com">bspfaq@qualia.com</a> with a subject line of "SEND BSP TREE SOURCE". This will return to you a UU encoded copy of the sample C++ source code.<p>
+
+Also in this directory is the BSP tree demo application for MacOS and Win95. This demo shows how to use BSP trees for basic Boolean modelling and hidden surface removal, and includes an implementation of Ken Shoemake's ArcBall interface. The MacOS package includes all of the source for the demo application in Metrowerks CodeWarrior projects. The Win95 package is a first beta based on the MacOS package, and includes all the source for the demo in two Microsoft Visual C++ projects.<p>
+
+Information about the ArcBall controller can be found in Graphics Gems IV (see below). The original paper and demo application for 68k based Apple Macintosh computers is available via WWW or FTP at:<p>
+<ul type=disc>
+<li><a href="http://www.cis.upenn.edu/ftpbin/ftphtml.pl?/pub/graphics/arcball">http://www.cis.upenn.edu/ftpbin/ftphtml.pl?/pub/graphics/arcball</a>
+<li><a href="ftp://ftp.cis.upenn.edu/pub/graphics/arcball/">ftp://ftp.cis.upenn.edu/pub/graphics/arcball/</a>
+</ul><p>
+
+<b>Graphics Gems</b><br>
+
+The Graphics Gems archive is available via FTP at:<p>
+<ul type=disc>
+<li><a href="file://ftp.princeton.edu/pub/Graphics/GraphicsGems/">file://ftp.princeton.edu/pub/Graphics/GraphicsGems/</a>
+<li><a href="ftp://ftp-graphics.stanford.edu/pub/Graphics/GraphicsGems/">ftp://ftp-graphics.stanford.edu/pub/Graphics/GraphicsGems/</a>
+</ul><p>
+It is an invaluable resource for all things graphical. In particular, there are some BSP tree references worth looking over.<p>
+
+<a href="http://www.graphics.cornell.edu/~shirley/">Peter Shirley</a> and Kelvin Sung have C sample code for ray tracing with BSP trees in <a href="file://ftp.princeton.edu/pub/Graphics/GraphicsGems/GemsIII/">Graphics Gems III</a><p>
+
+Norman Chin has provided a wonderful resource for BSP trees in <a href="file://ftp.princeton.edu/pub/Graphics/GraphicsGems/GemsV/">Graphics Gems V</a>. He provides C sample code for a wide variety of uses.<p>
+
+<b>Other BSP tree resources</b><br>
+The Ray Tracing News is available at:<p>
+<ul type=disc>
+<li><a href="ftp://ftp-graphics.stanford.edu/pub/Graphics/RTNews/html/index.html">ftp://ftp-graphics.stanford.edu/pub/Graphics/RTNews/html/index.html</a>
+</ul><p>
+It has many good articles which involve the use of BSP trees or compares them to other data structures for ray tracing efficiency. It's definitely worth a look.<p>
+
+The DejaNews research service is a search engine for newsgroup postings. Conduct a search on "BSP tree" to read over recent, as well as old, discussions about BSP trees. DejaNews is available at:<p>
+<ul type=disc>
+<li><a href="http://www.dejanews.com/">http://www.dejanews.com/</a>
+</ul><p>
+
+Pat Fleckenstein and Rob Reay have put together a FAQ on 3D graphics, which includes a blurb on BSP trees, and an FTP site with some sample code:<p>
+<ul type=disc>
+<li><a href="http://www.csh.rit.edu/~pat/misc/3dFaq.html">http://www.csh.rit.edu/~pat/misc/3dFaq.html</a>
+<li><a href="file://ftp.csh.rit.edu/pub/3dfaq/">file://ftp.csh.rit.edu/pub/3dfaq/</a>
+</ul><p>
+
+<a href="http://www.ddj.com/">Dr. Dobbs Journal</a> has an article in their July '95 issue about BSP trees, By Nathan Dwyer. It describes the construction of BSP trees for visible surface processing, how to split polygons with planes, and how to dump the tree to a file. There is C++ source code to accompany the article.<p>
+<ul type=disc>
+<li><A href="http://www.ddj.com/ddj/1995/1995.07/dwyer.htm">http://www.ddj.com/ddj/1995/1995.07/dwyer.htm</a>
+</ul><p>
+
+Michael Abrash's columns in the DDJ Sourcebooks are an excellent introduction to the concept of BSP trees, and the practical details of implementing them for games like Doom and Quake. The source code for these articles is distributed over several sites.<p>
+<ul type=disc>
+<li><a href="ftp://ftp.mv.com/pub/ddj/1995/1995.cpp/asc.zip">ftp://ftp.mv.com/pub/ddj/1995/1995.cpp/asc.zip</a>
+<li><a href="ftp://ftp.idsoftware.com/mikeab/">ftp://ftp.idsoftware.com/mikeab/</a>
+</ul><p>
+
+Ekkehard Beier has made available a generic 3D graphics kernel intended to assist development of graphics application interfaces. One of the classes in the library is a BSP tree, and full source is provided. The focus seems to be on ray tracing, with the code being based on Jim Arvo's <a href="/bspfaq/ltvw.html">Linear Time Voxel Walking</a> article in the ray tracing news.<p>
+<ul type=disc>
+<li><a href="ftp://metallica.prakinf.tu-ilmenau.de/pub/PROJECTS/GENERIC/">ftp://metallica.prakinf.tu-ilmenau.de/pub/PROJECTS/GENERIC/</a>
+</ul><p>
+
+Eddie Edwards wrote a commonly referenced text which describes 2D BSP trees in some detail for use in games like DOOM. It includes a bit of sample code, too.<p>
+
+<ul type=disc>
+<li><a href="ftp://x2ftp.oulu.fi/pub/msdos/programming/theory/bsp_tree.zip">file://x2ftp.oulu.fi/pub/msdos/programming/theory/bsp_tree.zip</a>
+</ul><p>
+
+Mel Slater has made available his C source code for computing shadow volumes based on BSP trees. There is also a paper which compares three shadow volume algorithms. These are available via FTP at:<p>
+<ul type=disc>
+<li><a href="ftp://ftp.dcs.qmw.ac.uk/people/mel/BSP/">ftp://ftp.dcs.qmw.ac.uk/people/mel/BSP/</a>
+</ul><p>
+
+The SPHIGS distribution that accompanies the famous Foley, et al. Computer Graphics textbook contains a BSP tree implementation and can be obtained at:<p>
+<ul type=disc>
+<li><a href="file://ftp.cs.brown.edu/pub/sphigs.tar.Z">file://ftp.cs.brown.edu/pub/sphigs.tar.Z</a>
+</ul><p>
+
+John Holmes, Jr. has a paper about BSP trees and boundary representations online. This paper touches on many aspects of BSP trees in a scientific manner, and is available at:<p>
+<ul type=disc>
+<li><a href="http://www.cis.ufl.edu/~jch/is-final.ps">http://www.cis.ufl.edu/~jch/is-final.ps</a>
+</ul><p>
+
+A.T. Campbell III has placed his doctoral dissertation online. This document describes the use of BSP trees for surface meshing in a radiosity algorithm. He has also made available source code in both C and C++ for many BSP tree tasks, including an implementation of tree merging. This is all available on his home page at:<p>
+<ul type=disc>
+<li><a href="http://www.arlut.utexas.edu/~atc/">http://www.arlut.utexas.edu/~atc/</a>
+</ul><p>
+
+Andrea Marchini and Stefano Tommesani have made available a BSP tree compiler and viewing program as part of the "Purple Haze" project. There is some nice accompanying documentation of the process of BSP tree construction, as well. The web page is at:<p>
+<ul type=disc>
+<li><a href="http://www.ce.unipr.it/~tommesa/">http://www.ce.unipr.it/~tommesa/</a>
+</ul><p>
+
+Paton Lewis has built an excellent demonstration of BSP trees using Java. If you have had problems visualizing the tree contruction process, you should take a look at this tool. The user draws lines in an interactive construction space, and three other view panes show the split segments, a traditional graph representation of the tree, and a first person perspective view of the line segments as walls. This is how DOOM works. The web page is:<p>
+<ul type=disc>
+<li><a href="http://www.cs.brown.edu/people/pjl/bsptreedemo/bsptreedemo.html">http://www.cs.brown.edu/people/pjl/bsptreedemo/bsptreedemo.html</a>
+</ul><p>
+
+A general graphics programming resources has an article about building BSP trees using axis-aligned partitioning planes. The article calls this structure a bintree, after a 1994 paper by Tamminen. The URL is:<p>
+<ul type=disc>
+<li><a href="http://www.scs.ryerson.ca/~h2jang/gfx_c.html">http://www.scs.ryerson.ca/~h2jang/gfx_c.html</a>
+</ul><p>
+
+John Whitley has a short tutorial page about BSP trees which covers general details of tree construction and display. It includes psuedo-code for a front to back tree traversal, and an annotated bibliography. The location of this resource is:<p>
+<ul type=disc>
+<li><a href="http://www.cs.buffalo.edu/~whitley/research/graphics/bsp/tutorial.html">http://www.cs.buffalo.edu/~whitley/research/graphics/bsp/tutorial.html</a>
+</ul><p>
+
+<b>General resources for computer graphics programming</b><br>
+If you are interested in game programming, check out the rec.games.programmer.faq: <a href="http://www.io.com/~paulhart/game/FAQ/rgp_FAQ.html">http://www.io.com/~paulhart/game/FAQ/rgp_FAQ.html</a>. You can also look at Paul's game programming page, <a href="http://www.io.com/~paulhart/game/">http://www.io.com/~paulhart/game/</a>.<p>
+
+The computational geometry web page contains lots of information and pointers to related computational geometry tools and algorithms: <a href="http://www.cs.berkeley.edu/~jeffe/compgeom.html">http://www.cs.berkeley.edu/~jeffe/compgeom.html</a>. Another computational geometry page to look at is <a href="http://www.ics.uci.edu:80/~eppstein/geom.html">http://www.ics.uci.edu:80/~eppstein/geom.html</a>. This page seems to have a more tutorial nature than the first page.
+		<br>--<br><i>Last Update: 10/09/96 10:48:39</i><p>
+
+	<font size=+1><b><li><a name="25.txt">References</a></b></font><p>
+A partial listing of textual info on BSP trees.<p>
+<li><b>Abrash, M.</b>, BSP Trees, <i>Dr. Dobbs Sourcebook</i>, <b>20</b>(14), 49-52, may/jun 1995.<p>
+<li><b>Dadoun, N.</b>, <b>Kirkpatrick, D.</b>, and <b>Walsh, J.</b>, The Geometry of Beam Tracing, <i>Proceedings of the ACM Symposium on Computational Geometry</i>, 55--61, jun 1985.<p>
+
+<li><b>Chin, N.</b>, and <b>Feiner, S.</b>, Near Real-Time Shadow Generation Using BSP Trees, <i>Computer Graphics (SIGGRAPH '89 Proceedings)</i>, <b>23</b>(3), 99--106, jul 1989.<p>
+
+<li><b>Chin, N.</b>, and <b>Feiner, S.</b>, Fast object-precision shadow generation for area light sources using BSP trees, <i>Computer Graphics (1992 Symposium on Interactive 3D Graphics)</i>, <b>25</b>(2), 21--30, mar 1992.<p>
+
+<li><b>Chrysanthou, Y.</b>, and <b>Slater, M.</b>, Computing dynamic changes to BSP trees, <i>Computer Graphics Forum (EUROGRAPHICS '92 Proceedings)</i>, <b>11</b>(3), 321--332, sep 1992.<p>
+
+<li><b>Naylor, B.</b>, <b>Amanatides, J.</b>, and <b>Thibault, W.</b>, Merging BSP Trees Yields Polyhedral Set Operations, <i>Computer Graphics (SIGGRAPH '90 Proceedings)</i>, <b>24</b>(4), 115--124, aug 1990.<p>
+
+<li><b>Naylor, B.</b>, Interactive solid geometry via partitioning trees, <i>Proceedings of Graphics Interface '92</i>, 11--18, may 1992.<p>
+
+<li><b>Naylor, B.</b>, Partitioning tree image representation and generation from 3D geometric models, <i>Proceedings of Graphics Interface '92</i>, 201--212, may 1992.<p>
+
+<li><b>Naylor, B.</b>, {SCULPT} An Interactive Solid Modeling Tool, <i>Proceedings of Graphics Interface '90</i>, 138--148, may 1990.<p>
+
+<li><b>Gordon, D.</b>, and <b>Chen, S.</b>, Front-to-back display of BSP trees, <i>IEEE Computer Graphics and Applications</i>, <b>11</b>(5), 79--85, sep 1991.<p>
+
+<li><b>Ihm, I.</b>, and <b>Naylor, B.</b>, Piecewise linear approximations of digitized space curves with applications, <i>Scientific Visualization of Physical Phenomena (Proceedings of CG International '91)</i>, 545--569, 1991.<p>
+
+<li><b>Vanecek, G.</b>, Brep-index: a multidimensional space partitioning tree, <i>Internat. J. Comput. Geom. Appl.</i>, <b>1</b>(3), 243--261, 1991.<p>
+
+<li><b><a href="http://www.cs.caltech.edu/~arvo/">Arvo, J.</a></b>, <a href=/bspfaq/ltvw.html>Linear Time Voxel Walking for Octrees</a>, <i>Ray Tracing News</i>, feb 1988.<p>
+
+<li><b>Jansen, F.</b>, Data Structures for Ray Tracing, <i>Data Structures for Raster Graphics</i>, 57--73, 1986.<p>
+
+<li><b>MacDonald, J.</b>, and <b>Booth, K.</b>, Heuristics for Ray Tracing Using Space Subdivision, <i>Proceedings of Graphics Interface '89</i>, 152--63, jun 1989.<p>
+
+<li><b>Naylor, B.</b>, and <b>Thibault, W.</b>, Application of BSP Trees to Ray Tracing and CSG Evaluation, <i>Tech. Rep. GIT-ICS 86/03</i>, feb 1986.<p>
+
+<li><b>Sung, K.</b>, and <b>Shirley, P.</b>, Ray Tracing with the BSP Tree, <i>Graphics Gems III</i>, 271--274, 1992.<p>
+
+<li><b>Fuchs, H.</b>, <b>Kedem, Z.</b>, and <b>Naylor, B.</b>, On Visible Surface Generation by A Priori Tree Structures, <i>Conf. Proc. of SIGGRAPH '80</i>, <b>14</b>(3), 124--133, jul 1980.<p>
+
+<li><b>Paterson, M.</b>, and <b>Yao, F.</b>, Efficient Binary Space Partitions for Hidden-Surface Removal and Solid Modeling, <i>Discrete and Computational Geometry</i>, <b>5</b>(5), 485--503, 1990.<p>
+
+		<br>--<br><i>Last Update: 05/01/96 11:13:53</i><p>
+
+</ol>
+<hr>
+<a href="/bspfaq/">BSP Tree FAQ</a> (<a href="mailto:bspfaq@qualia.com">bspfaq@qualia.com</a>)<p>
+Kindly sponsored by <a href="/"><b>Qualia, Incorporated</b></a>.
+</body></html>
