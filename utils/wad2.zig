@@ -3,30 +3,13 @@
 // reference:
 //  https://www.gamers.org/dEngine/quake/spec/quake-spec34/qkspec_7.htm#CWADF
 //
-// cmd: clear && zig build-exe -freference-trace wad2.zig && ./wad2 ../data/pak/gfx.wad ../data/pak/gfx/palette.lmp
+// cmd: clear && zig build-exe -freference-trace wad2.zig && ./wad2 ../data/pak/gfx.wad ../data/pak/gfx/palette.lmp /tmp/wad2
 
 const std = @import("std");
+const misc = @import("misc.zig");
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdOut().writer();
-
-fn load(pathname: []const u8) ![]align(4096) const u8 {
-  var file = try std.fs.cwd().openFile(pathname, .{});
-  defer file.close();
-
-  const size = try file.getEndPos();
-  const buffer = try std.posix.mmap(
-    null,
-    size,
-    std.posix.PROT.READ,
-    .{ .TYPE = .SHARED },
-    file.handle,
-    0,
-  );
-  errdefer std.posix.munmap(buffer);
-
-  return buffer;
-}
 
 const Wad2Header = extern struct {
   magic: [4]u8,          // "WAD2", Name of the new WAD format
@@ -125,7 +108,7 @@ pub fn main() !void {
   const outputFolder = args[3];
 
   // Load the Wad2 file
-  const buffer = load(wadfilepath) catch |err| {
+  const buffer = misc.load(wadfilepath) catch |err| {
     try stderr.print("error: {}, trying to open open {s}\n", .{ err, args[1] });
     std.posix.exit(1);
   };
@@ -133,7 +116,7 @@ pub fn main() !void {
   const wad2: Wad2 = try Wad2.init(buffer);
   // Load the palette
   // https://quakewiki.org/wiki/palette.lmp
-  const palette = load(paletteFilepath) catch |err| {
+  const palette = misc.load(paletteFilepath) catch |err| {
     try stderr.print("error: {}, trying to open open {s}\n", .{ err, paletteFilepath });
     std.posix.exit(1);
   };
@@ -168,18 +151,9 @@ pub fn main() !void {
         const filepath = try std.fs.path.join(allocator, &.{ outputFolder, filename });
         // Create file
         defer allocator.free(filepath);
-        const file = try std.fs.cwd().createFile(
-          filepath,
-          .{ .read = true },
-        );
-        defer file.close();
+
+        try misc.writePgm(@intCast(picture.width), @intCast(picture.height), texture, filepath);
         std.log.debug(" written to  : {s}", .{ filepath });
-        // Print pgm header
-        const pgmHeader = try std.fmt.allocPrint(allocator, "P6\n{} {}\n255\n", .{ picture.width, picture.height });
-        defer allocator.free(pgmHeader);
-        // Write to file
-        try file.writeAll(pgmHeader);
-        try file.writeAll(texture);
       },
       else => {},
     }

@@ -6,27 +6,10 @@
 // cmd: clear && zig build-exe -freference-trace map.zig && ./map ../../quake_map_source/start.map
 
 const std = @import("std");
+const misc = @import("misc.zig");
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdOut().writer();
-
-fn load(pathname: []const u8) ![]align(4096) const u8 {
-  var file = try std.fs.cwd().openFile(pathname, .{});
-  defer file.close();
-
-  const size = try file.getEndPos();
-  const buffer = try std.posix.mmap(
-    null,
-    size,
-    std.posix.PROT.READ,
-    .{ .TYPE = .SHARED },
-    file.handle,
-    0,
-  );
-  errdefer std.posix.munmap(buffer);
-
-  return buffer;
-}
 
 pub const Plane = struct {
   points: [3]@Vector(3, i16),
@@ -66,7 +49,7 @@ pub const Entity = struct {
   fields: EntityMap,
   brushes: []Brush,
 
-  fn get(self: Self, key: []const u8) ?EntityValue {
+  pub fn get(self: Self, key: []const u8) ?EntityValue {
     return self.fields.get(key);
   }
 };
@@ -433,7 +416,7 @@ pub fn main() !void {
     return;
   }
   const mapfilepath = args[1];
-  const buffer = load(mapfilepath) catch |err| {
+  const buffer = misc.load(mapfilepath) catch |err| {
     try stderr.print("error: {}, trying to open open {s}\n", .{ err, args[1] });
     std.posix.exit(1);
   };
@@ -450,4 +433,5 @@ pub fn main() !void {
   defer map.deinit();
 
   try stdout.print("{s} loaded\n", .{ map.get("worldspawn").?.get("message").?.toString() });
+  std.log.debug("{}", .{ map.get("worldspawn").?.brushes.len });
 }
