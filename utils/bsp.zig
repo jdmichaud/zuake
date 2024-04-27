@@ -118,7 +118,7 @@ const MipTexturesHeader = extern struct {
 };
 
 pub const MipTexture = extern struct {
-  name: [16] u8,               // Name of the texture.
+  name: [16]u8,                // Name of the texture.
   width: u32,                  // width of picture, must be a multiple of 8
   height: u32,                 // height of picture, must be a multiple of 8
   // All these offset are relative to the beginning of the MipTexture struct

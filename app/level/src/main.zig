@@ -56,34 +56,55 @@ const Camera = struct {
   fovx: f32,
   fovy: f32,
 
+  dirty: bool,
+
+  pub fn init(specs: struct {
+    look: zlm.Vec4,
+    eye: zlm.Vec4,
+    up: zlm.Vec4,
+    fovx: f32,
+    fovy: f32
+  }) Self {
+    return Self{
+      .look = specs.look,
+      .eye = specs.eye,
+      .up = specs.up,
+      .fovx = specs.fovx,
+      .fovy = specs.fovy,
+      .dirty = true,
+    };
+  }
+
   // cache
   var toMatrix = zlm.Mat4.identity;
   var fromMatrix = zlm.Mat4.identity;
-  var dirty = true;
 
-  pub fn from(self: Self) zlm.Mat4 {
-    if (dirty) self.computeMatrices();
+  pub fn from(self: *Self) zlm.Mat4 {
+    if (self.dirty) self.computeMatrices();
     return fromMatrix;
   }
 
-  pub fn to(self: Self) zlm.Mat4 {
-    if (dirty) self.computeMatrices();
+  pub fn to(self: *Self) zlm.Mat4 {
+    if (self.dirty) self.computeMatrices();
     return toMatrix;
   }
 
   pub fn translate(self: *Self, v: zlm.Vec4) void {
     self.look = self.look.add(v);
     self.eye = self.eye.add(v);
-    dirty = true;
+    self.dirty = true;
   }
 
   pub fn zoom(self: *Self, factor: f16) void {
+    const fovx = self.fovx;
     self.fovx = @max(50, self.fovx * factor);
-    self.fovy = @max(50, self.fovy * factor);
-    dirty = true;
+    // So that we always keep the same ratio between fovx and fovy even when
+    // maxing the value.
+    self.fovy = self.fovy * (self.fovx / fovx);
+    self.dirty = true;
   }
 
-  fn computeMatrices(self: Self) void {
+  fn computeMatrices(self: *Self) void {
     const direction = zlm.Vec3.sub(self.look.swizzle("xyz"), self.eye.swizzle("xyz"));
     const f = direction.normalize();
     const s = zlm.Vec3.cross(f, self.up.swizzle("xyz")).normalize().scale(self.fovx / 2);
@@ -98,7 +119,7 @@ const Camera = struct {
       },
     }).transpose();
     toMatrix = zlm.Mat4.invert(fromMatrix) orelse unreachable;
-    dirty = false;
+    self.dirty = false;
   }
 };
 
@@ -123,13 +144,43 @@ fn topCameraFromLevel(model: bspModule.Model) Camera {
     fovx = modelWidth * 1.1;
     fovy = fovx * 3 / 4;
   }
-  return Camera {
+  return Camera.init(.{
     .look = look,
     .eye = eye,
     .up = up,
     .fovx = fovx,
     .fovy = fovy,
-  };
+  });
+}
+
+fn frontCameraFromLevel(model: bspModule.Model) Camera {
+  const look = zlm.Vec4.new(
+    model.bound.min.x + (model.bound.max.x - model.bound.min.x) / 2,
+    model.bound.min.y + (model.bound.max.y - model.bound.min.y) / 2,
+    model.bound.min.z + (model.bound.max.z - model.bound.min.z) / 2,
+    1,
+  );
+  const eye = look.add(zlm.Vec4.new(0, 1, 0, 0));
+  const up = zlm.Vec4.new(0, 0, -1, 0);
+  const modelWidth = model.bound.max.x - model.bound.min.x;
+  const modelHeight = model.bound.max.z - model.bound.min.z;
+  // We always consider a 4/3 screen for now
+  var fovy: f32 = 0;
+  var fovx: f32 = 0;
+  if ((modelHeight * 4 / 3) > modelWidth) {
+    fovy = modelHeight * 1.1;
+    fovx = fovy * 4 / 3;
+  } else {
+    fovx = modelWidth * 1.1;
+    fovy = fovx * 3 / 4;
+  }
+  return Camera.init(.{
+    .look = look,
+    .eye = eye,
+    .up = up,
+    .fovx = fovx,
+    .fovy = fovy,
+  });
 }
 
 const Model = struct {
@@ -221,7 +272,7 @@ fn print(comptime Context: type, x: u8, y: u8, comptime fmt: []const u8, args: a
   Context.printText(as(i16, x) * 8, as(i16, y) * 8, std.fmt.bufPrint(buffer, fmt, args) catch unreachable);
 }
 
-fn update(comptime Context: type, model: Model) void {
+fn update(comptime Context: type, model: *Model) void {
   Context.color = 0xFF000000;
   Context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   Context.color = 0xFFFFFFFF;
@@ -233,9 +284,9 @@ fn update(comptime Context: type, model: Model) void {
 
   Context.save() catch unreachable;
   Context.reset();
-  print(Context, 0, Context.contextHeight / 8 - 5, "pointer   : {d:.0} {d:.0} (W {d:.1} {d:.1} C {d:.1} {d:.1})", .{
+  print(Context, 0, Context.contextHeight / 8 - 5, "pointer   : X{d:.0} Y{d:.0} (W X{d:.1} Y{d:.1} Z{d:.1} C {d:.1} {d:.1})", .{
     model.mousePosition.x, model.mousePosition.y,
-    mousePositionInWorld.x, mousePositionInWorld.y,
+    mousePositionInWorld.x, mousePositionInWorld.y, mousePositionInWorld.z,
     mousePositionCamera.x, mousePositionCamera.y });
   print(Context, 0, Context.contextHeight / 8 - 2, "map       : {s}", .{ model.mapName });
   print(Context, 0, Context.contextHeight / 8 - 1, "fps       : {d:.0}", .{ model.fps });
@@ -307,16 +358,22 @@ fn update(comptime Context: type, model: Model) void {
 
   // Draw bounding box
   Context.color = 0xFFEFD867;
-  const mincorner = zlm.vec4(model.bsp.models[0].bound.min.x, model.bsp.models[0].bound.min.y, model.bsp.models[0].bound.min.z, 1)
+  const minbox = zlm.vec4(model.bsp.models[0].bound.min.x, model.bsp.models[0].bound.min.y, model.bsp.models[0].bound.min.z, 1)
     .transform(worldToCanvas).swizzle("xy");
-  const maxcorner = zlm.vec4(model.bsp.models[0].bound.max.x, model.bsp.models[0].bound.max.y, model.bsp.models[0].bound.max.z, 1)
+  const maxbox = zlm.vec4(model.bsp.models[0].bound.max.x, model.bsp.models[0].bound.max.y, model.bsp.models[0].bound.max.z, 1)
     .transform(worldToCanvas).swizzle("xy");
-  Context.rect(@intFromFloat(mincorner.x), @intFromFloat(mincorner.y),
-    @intFromFloat(maxcorner.sub(mincorner).swizzle("x0").length()),
-    @intFromFloat(maxcorner.sub(mincorner).swizzle("y0").length()));
+  const mincorner = zlm.vec2(@min(minbox.x, maxbox.x), @min(minbox.y, maxbox.y));
+  Context.rect(
+    @intFromFloat(@max(std.math.minInt(i16), @min(std.math.maxInt(i16), mincorner.x))),
+    @intFromFloat(@max(std.math.minInt(i16), @min(std.math.maxInt(i16), mincorner.y))),
+    @intFromFloat(@max(std.math.minInt(i16), @min(std.math.maxInt(i16), maxbox.sub(minbox).swizzle("x0").length()))),
+    @intFromFloat(@max(std.math.minInt(i16), @min(std.math.maxInt(i16), maxbox.sub(minbox).swizzle("y0").length()))));
 
   const origin = zlm.vec4(0, 0, 0, 1).transform(worldToCanvas).swizzle("xy");
-  Context.plot(@intFromFloat(origin.x), @intFromFloat(origin.y), 0xFF0000FF);
+  Context.plot(
+    @intFromFloat(@max(std.math.minInt(i16), @min(std.math.maxInt(i16), origin.x))),
+    @intFromFloat(@max(std.math.minInt(i16), @min(std.math.maxInt(i16), origin.y))),
+    0xFF0000FF);
 }
 
 const Edge = struct {
@@ -388,6 +445,14 @@ pub fn main() !void {
         ioAdapter.EventType.KeyDown => |keyEvent| {
           switch (keyEvent.scancode) {
             ioAdapter.Scancode.ESCAPE => quit = true,
+            ioAdapter.Scancode.F => {
+              model.camera = frontCameraFromLevel(bsp.models[0]);
+              contextDirty = true;
+            },
+            ioAdapter.Scancode.T => {
+              model.camera = topCameraFromLevel(bsp.models[0]);
+              contextDirty = true;
+            },
             else => {},
           }
         },
@@ -404,10 +469,10 @@ pub fn main() !void {
           contextDirty = true;
         },
         ioAdapter.EventType.MouseDown => |payload| {
-          mousebtns |= @as(u3, 1) << @as(u2, @intCast(@intFromEnum(payload.button) - 1));
+          mousebtns |= @as(u3, 1) << as(u2, @intFromEnum(payload.button) - 1);
         },
         ioAdapter.EventType.MouseUp => |payload| {
-          mousebtns ^= mousebtns & (@as(u3, 1) << @as(u2, @intCast((@intFromEnum(payload.button) - 1))));
+          mousebtns ^= mousebtns & (@as(u3, 1) << as(u2, (@intFromEnum(payload.button) - 1)));
         },
         ioAdapter.EventType.MouseWheel => |payload| {
           model.camera.zoom(if (payload.y > 0) 0.9 else 1.1);
@@ -418,7 +483,7 @@ pub fn main() !void {
     }
 
     if (contextDirty) {
-      update(context, model);
+      update(context, &model);
       sdlAdapter.interface.drawImage(&context.buffer, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
       sdlAdapter.interface.renderScene();
       contextDirty = false;
@@ -429,7 +494,7 @@ pub fn main() !void {
     if (timePerFrame > 1000) {
       model.fps = model.fps * 0.9 + 1000000.0 / @as(f32, @floatFromInt(timePerFrame)) * 0.1;
     }
-    const delay: i32 = 16 - @as(i32, @intCast(@divTrunc(timePerFrame, 1000)));
-    std.time.sleep(if (delay > 0) @as(u32, @intCast(delay)) else 0);
+    const delay: i32 = 16 - as(i32, @divTrunc(timePerFrame, 1000));
+    std.time.sleep(if (delay > 0) as(u32, delay) else 0);
   }
 }

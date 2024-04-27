@@ -432,16 +432,13 @@ pub const SDLAdapter = struct {
     if (sdl.SDL_PollEvent(&event) != 0) {
       switch (event.type) {
         sdl.SDL_KEYDOWN => {
-          switch (event.key.keysym.sym) {
-            sdl.SDLK_ESCAPE => return InputEvent{
-              .KeyDown = KeyEvent{
-                .mod = 0,
-                .scancode = Scancode.ESCAPE,
-                .keycode = Keycode.None,
-              },
+          return InputEvent{
+            .KeyDown = KeyEvent{
+              .mod = 0,
+              .scancode = @enumFromInt(event.key.keysym.scancode),
+              .keycode = Keycode.None,
             },
-            else => {},
-          }
+          };
         },
         sdl.SDL_MOUSEMOTION => {
           return InputEvent{
