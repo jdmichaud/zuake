@@ -7,3 +7,7 @@ bin
 entity
 map
 wad2
+bspc
+*.so
+dat
+qvm
