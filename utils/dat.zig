@@ -1,4 +1,4 @@
-// Utilities related to progs,dat quakec bytecode.
+// Utilities related to progs.dat quakec bytecode.
 //
 // reference:
 //  https://www.leonrische.me/pages/quakec.html
@@ -34,7 +34,7 @@ const Header = extern struct {
   globalsNum: u32,
 };
 
-const OpCode = enum(u16) {
+pub const OpCode = enum(u16) {
   //Misc Opcode Mnemonic
   DONE = 0x00,
   STATE = 0x3C,
@@ -112,12 +112,12 @@ const OpCode = enum(u16) {
 
 const Statement = extern struct {
   opcode: OpCode,
-  arg_1: u16,
-  arg_2: u16,
-  arg_3: u16,
+  arg1: u16,
+  arg2: u16,
+  arg3: u16,
 };
 
-const QType = enum(u16) {
+pub const QType = enum(u16) {
   Void = 0,
   String = 1,
   Float = 2,
@@ -197,7 +197,7 @@ fn loadLumpArray(comptime T: type, dat: []const u8, offset: u32, num: u32) ![]al
   return ts[0..num];
 }
 
-const Dat = struct {
+pub const Dat = struct {
   const Self = @This();
 
   header: *align(1) const Header,
@@ -218,6 +218,7 @@ const Dat = struct {
       dat[header.stringsOffset + 1..header.stringsOffset + header.stringsSize], &[_]u8{ 0 });
     while (splitIt.next()) |s| try acc.append(s);
     const stringTable: StringSection = try acc.toOwnedSlice();
+    errdefer allocator.free(stringTable);
 
     return .{
       .header = header,
@@ -249,6 +250,23 @@ const Dat = struct {
       QType.Field => return TypedValue { .Field = self.globals[definition.globalIndex] },
       QType.Function => return TypedValue { .Function = self.globals[definition.globalIndex] },
     }
+  }
+
+  pub fn getFunction(self: Self, definition: Definition) ?Function {
+    return switch (self.getVar(definition)) {
+      QType.Function => self.functions[self.globals[definition.globalIndex]],
+      else => null,
+    };
+  }
+
+  pub fn getFunctionByIndex(self: Self, index: u32) ?Function {
+    for (self.definitions) |definition| {
+      if (definition.getType() == QType.Function
+        and definition.globalIndex == index) {
+        return self.getFunction(definition);
+      }
+    }
+    return null;
   }
 
   pub fn getString(self: Self, offset: u32) [:0]const u8 {
@@ -354,7 +372,7 @@ pub fn main() !void {
   try stdout.print("\nStatement table contains {} entries:\n", .{ dat.statements.len - 1 });
   try stdout.print("  {s: >5}{s: >10} {s: <8}{s: <8}{s: <8}\n", .{ "Num", "Opcode", "Arg1", "Arg2", "Arg3" });
   for (dat.statements[1..], 1..) |s, index| {
-    try stdout.print("  {: >5}{s: >10} {: <8}{: <8}{: <8}\n", .{ index, @tagName(s.opcode), s.arg_1, s.arg_2, s.arg_3 });
+    try stdout.print("  {: >5}{s: >10} {: <8}{: <8}{: <8}\n", .{ index, @tagName(s.opcode), s.arg1, s.arg2, s.arg3 });
   }
 
   try stdout.print("\nGlobal table contains {} entries:\n", .{ dat.globals.len - 1 });
