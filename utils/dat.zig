@@ -131,7 +131,7 @@ const TypedValue = union(QType) {
   Void: u32,
   String: []const u8,
   Float: f32,
-  Vector: u32,
+  Vector: @Vector(3, f32),
   Entity: u32,
   Field: u32,
   Function: u32,
@@ -149,7 +149,7 @@ const TypedValue = union(QType) {
       TypedValue.Void => |v| try writer.print("Void {}", .{ v }),
       TypedValue.String => |s| try writer.print("{s}", .{ s }),
       TypedValue.Float => |f| try writer.print("{d}", .{ f }),
-      TypedValue.Vector => |v| try writer.print("Vector {}", .{ v }),
+      TypedValue.Vector => |v| try writer.print("Vector {any}", .{ v }),
       TypedValue.Entity => |v| try writer.print("Entity {}", .{ v }),
       TypedValue.Field => |v| try writer.print("Field {}", .{ v }),
       TypedValue.Function => |v| try writer.print("Function {}", .{ v }),
@@ -245,7 +245,15 @@ pub const Dat = struct {
         return TypedValue { .Float = bitCast(f32, globalValue) };
       },
       QType.Void => return TypedValue { .Void = self.globals[definition.globalIndex] },
-      QType.Vector => return TypedValue { .Vector = self.globals[definition.globalIndex] },
+      QType.Vector => {
+        return TypedValue {
+          .Vector = .{
+            @bitCast(self.globals[definition.globalIndex]),
+            @bitCast(self.globals[definition.globalIndex + 1]),
+            @bitCast(self.globals[definition.globalIndex + 2]),
+          },
+        };
+      },
       QType.Entity => return TypedValue { .Entity = self.globals[definition.globalIndex] },
       QType.Field => return TypedValue { .Field = self.globals[definition.globalIndex] },
       QType.Function => return TypedValue { .Function = self.globals[definition.globalIndex] },

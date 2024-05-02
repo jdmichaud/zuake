@@ -13,6 +13,19 @@ const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
 // Special entry in the global index
+// There are spaced by 3 bytes so that they can take vectors.
+// The calling convention is as follows:
+// - Statement can only take 3 parameters thus CALL cannot pass 8 parameters, so
+//   the compiler will emit STORE instructions to put value inside the Parameters
+//   starting at 0x04
+// - The CALL instruction will copy those parameters to the function locals
+//   starting with the first local defined in the Function structure.
+//   Except for builtins which handles their parameters by themselves.
+// - When the function ends, it emits a RETURN instruction passing the address
+//   in the memory of the returned value. The RETURN instruction copies that
+//   value in ReturnValue (0x01).
+// - The compiler will then emit a STORE instructions to retrieve the returned
+//   value from ReturnValue (0x01) and put it in a function local.
 const CallRegisters = enum(u8) {
   ReturnValue = 0x01,
   Parameter1 = 0x04,
@@ -71,7 +84,11 @@ const Builtins = struct {
       24 => @panic("sprint is not yet implemented"),
       25 => @panic("dprint is not yet implemented"),
       26 => @panic("ftos is not yet implemented"),
-      27 => @panic("vtos is not yet implemented"),
+      27 => {
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)    ] = 1;
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue) + 1] = 2;
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue) + 2] = 3;
+      },
       28 => @panic("coredump is not yet implemented"),
       29 => @panic("traceon is not yet implemented"),
       30 => @panic("traceoff is not yet implemented"),
@@ -116,7 +133,7 @@ const Builtins = struct {
         var str = [_]u8{ 0 } ** 1024;
         var head: usize = 0;
         inline for (ParameterList) |parameter| {
-          const strOffset = vm.globals[@intFromEnum(parameter)];
+          const strOffset = vm.mem32[@intFromEnum(parameter)];
           if (strOffset != 0) {
             const written = try std.fmt.bufPrint(str[head..], "{s}", .{
               vm.dat.getString(strOffset),
@@ -139,14 +156,28 @@ const VM = struct {
 
   dat: datModule.Dat,
 
-  globals: []u32,
-  pc: usize,
-  stack: []u32,
+  mem: []u8,
+  // Same as mem but in 32bits for convenience
+  mem32: []u32,
+  // Stack Pointer
+  // Index in mem32 (so incremented by 1)
   sp: usize,
+  // Upper limit of the stack. If we reach it, it means the stack is overflown.
+  stacklimit: usize,
+  // Program Counter
+  // This is not an offset in memory but an index in the statement list
+  pc: usize,
 
   pub fn init(allocator: std.mem.Allocator, dat: datModule.Dat) !Self {
-    const globals = try allocator.dupe(u32, dat.globals);
-    const stack = try allocator.alloc(u32, 1024);
+    // We allocate a fixed amount of memory (TODO: make it configurable)
+    // We assum that the globals fit within the memory with a little room for the stack
+    const mem32 = try allocator.alloc(u32, 256 * 1024 * 1); // 1 Mb for now
+    // Keep a []32 slice around for convenience
+    const mem: []u8 = std.mem.sliceAsBytes(mem32);
+    // Load globals
+    @memcpy(mem32[0..dat.globals.len], dat.globals);
+    // Stacks starts at the end and goes down
+    const sp = mem32.len - 1;
     const mainFn = blk: for (dat.definitions) |def| {
       if (def.getType() == datModule.QType.Function
         and std.mem.eql(u8, dat.getString(def.nameOffset), "main")) {
@@ -166,27 +197,36 @@ const VM = struct {
 
     return Self{
       .dat = dat,
-      .globals = globals,
-      .stack = stack,
-      .sp = 0,
+      .mem = mem,
+      .mem32 = mem32,
+      .sp = sp,
+      .stacklimit = dat.globals.len * @sizeOf(u32),
       .pc = @intCast(mainFn.?.entryPoint),
     };
   }
 
   pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-    allocator.free(self.globals);
-    allocator.free(self.stack);
+    allocator.free(self.mem);
     self.* = undefined;
   }
 
   fn call(self: *Self, statement: datModule.Statement, argc: u8, err: *RuntimeError) !void {
-    _ = argc;
     const fnIndex = statement.arg1;
 
     if (self.dat.getFunctionByIndex(fnIndex)) |fun| {
       if (fun.entryPoint > 0) {
-        self.stack[self.sp] = @intCast(self.pc);
-        self.sp += 1;
+        // Copy the parameters onto the function locals
+        for (0..argc) |i| {
+          const paramAddress = @intFromEnum(CallRegisters.Parameter1);
+          const offset = i * 3;
+          @memcpy(
+            self.mem32[fun.firstLocal + offset..fun.firstLocal + offset + fun.argSizes[i]],
+            self.mem32[paramAddress + offset..paramAddress + offset + fun.argSizes[i]],
+          );
+        }
+        // Save the PC
+        self.mem32[self.sp] = @intCast(self.pc);
+        self.sp -= 1;
         self.pc = @intCast(fun.entryPoint);
       } else {
         // No saving the PC because the builtin will not change it
@@ -207,10 +247,20 @@ const VM = struct {
       datModule.OpCode.GOTO => @panic("GOTO unimplemented"),
       datModule.OpCode.ADDRESS => @panic("ADDRESS unimplemented"),
       datModule.OpCode.RETURN => {
-        std.log.debug("RETURN pc {}", .{ self.pc });
-        if (self.sp == 0) return true;
-        self.sp -= 1;
-        self.pc = self.stack[self.sp] + 1;
+        std.log.debug("RETURN pc 0x{x} sp 0x{x}", .{ self.pc, self.sp });
+        const src = statement.arg1;
+        if (src != 0) {
+          const returnAddress = @intFromEnum(CallRegisters.ReturnValue);
+          self.mem32[returnAddress    ] = self.mem32[statement.arg1    ];
+          self.mem32[returnAddress + 1] = self.mem32[statement.arg1 + 1];
+          self.mem32[returnAddress + 2] = self.mem32[statement.arg1 + 2];
+        }
+        if (self.sp == self.mem32.len - 1) {
+          // The stack is at the bottom of the memory so we are returning from main
+          return true;
+        }
+        self.sp += 1;
+        self.pc = self.mem32[self.sp] + 1;
         return false;
       },
       // Arithmetic Opcode Mnemonic
@@ -222,7 +272,19 @@ const VM = struct {
       datModule.OpCode.ADD_F => @panic("ADD_F unimplemented"),
       datModule.OpCode.ADD_V => @panic("ADD_V unimplemented"),
       datModule.OpCode.SUB_F => @panic("SUB_F unimplemented"),
-      datModule.OpCode.SUB_V => @panic("SUB_V unimplemented"),
+      datModule.OpCode.SUB_V => {
+        std.log.debug("SUB_V, dst {} = lhs {} - rhs {} - pc {}",
+          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
+
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst    ] = self.mem32[lhs    ] - self.mem32[rhs    ];
+        self.mem32[dst + 1] = self.mem32[lhs + 1] - self.mem32[rhs + 1];
+        self.mem32[dst + 2] = self.mem32[lhs + 2] - self.mem32[rhs + 2];
+        self.pc += 1;
+        return false;
+      },
       // Comparison Opcode Mnemonic
       datModule.OpCode.EQ_F => @panic("EQ_F unimplemented"),
       datModule.OpCode.EQ_V => @panic("EQ_V unimplemented"),
@@ -246,7 +308,19 @@ const VM = struct {
       datModule.OpCode.LOAD_FLD => @panic("LOAD_FLD unimplemented"),
       datModule.OpCode.LOAD_FNC => @panic("LOAD_FNC unimplemented"),
       datModule.OpCode.STORE_F => @panic("STORE_F unimplemented"),
-      datModule.OpCode.STORE_V => @panic("STORE_V unimplemented"),
+      datModule.OpCode.STORE_V => {
+        std.log.debug("STORE_V, src {} dst {} - pc 0x{x}",
+          .{ statement.arg1, statement.arg2, self.pc });
+
+        const src = statement.arg1;
+        const dst = statement.arg2;
+        self.mem32[dst    ] = self.mem32[src    ];
+        self.mem32[dst + 1] = self.mem32[src + 1];
+        self.mem32[dst + 2] = self.mem32[src + 2];
+
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.STORE_S => {
         std.log.debug("STORE_S, src {} dst {} - pc {}",
           .{ statement.arg1, statement.arg2, self.pc });
@@ -254,7 +328,7 @@ const VM = struct {
         const src = statement.arg1;
         const dst = statement.arg2;
 
-        self.globals[dst] = self.globals[src];
+        self.mem32[dst] = self.mem32[src];
         self.pc += 1;
         return false;
       },
@@ -286,7 +360,7 @@ const VM = struct {
       datModule.OpCode.CALL7,
       datModule.OpCode.CALL8 => {
         const callArgc = @intFromEnum(statement.opcode) - @intFromEnum(datModule.OpCode.CALL0);
-        std.log.debug("CALL{}, {} - pc {}", .{ callArgc, statement.arg1, self.pc });
+        std.log.debug("CALL{}, {} - pc 0x{x} sp 0x{x}", .{ callArgc, statement.arg1, self.pc, self.sp });
         try self.call(statement, @intCast(callArgc), err);
         return false;
       },
@@ -299,7 +373,7 @@ const VM = struct {
   }
 };
 
-pub fn main() !void {
+pub fn main() !u8 {
   var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
   const allocator = general_purpose_allocator.allocator();
   defer _ = general_purpose_allocator.deinit();
@@ -312,7 +386,7 @@ pub fn main() !void {
     try stdout.print("{s} is a bsp29 tool\n\n", .{ args[0] });
     try stdout.print("usage:\n", .{});
     try stdout.print("    {s} <datfile> - Show the dat file content\n", .{ args[0] });
-    return;
+    return 1;
   }
   const mapfilepath = args[1];
   const buffer = misc.load(mapfilepath) catch |err| {
@@ -345,4 +419,6 @@ pub fn main() !void {
     };
     if (done) break;
   }
+  // bitCast the u32 into its f32 then convert it to u8.
+  return @as(u8, @intFromFloat(@as(f32, @bitCast(vm.mem32[@intFromEnum(CallRegisters.ReturnValue)]))));
 }
