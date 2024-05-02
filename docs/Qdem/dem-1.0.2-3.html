@@ -1,0 +1,80 @@
+<!SGML "ISO 8879:1986">
+<!DOCTYPE HTML SYSTEM "html.dtd">
+<HTML>
+<HEAD>
+<TITLE>The unofficial DEM format description: Some remarks on the used demo format</TITLE>
+</HEAD>
+<BODY>
+<A HREF="dem-1.0.2-2.html">Previous</A>
+<A HREF="dem-1.0.2-4.html">Next</A>
+<A HREF="dem-1.0.2.html#toc3">Table of Contents</A>
+<HR>
+<H2><A NAME="s3">3. Some remarks on the used demo format</A></H2>
+
+
+<H2><A NAME="ss3.1">3.1 Advertising</A></H2>
+
+<P>As the clever reader may know I'm the author of LMPC, the LMP/DMO/DEM
+Control Center. I recently included a DEM format support in it. This means:
+<UL>
+<LI>``recompile'' an existing DEM file to a simple text file (is
+ready and working) and</LI>
+<LI>``compile'' such a (modified) text file back to a DEM file (I'm just
+understanding how <CODE>flex</CODE> and <CODE>bison</CODE> do work).</LI>
+</UL>
+
+With such a tool it is very easy to analyze a DEM file but you can change it
+as well and so create a DEM file of a Quake game you never played.</P>
+
+
+<H2><A NAME="ss3.2">3.2 Difference to DOOM</A></H2>
+
+<P>The recording of a DOOM game consists only of the player input. All the
+rest is random-number dependent but totally deterministic and will be 
+recalculated during the playback.</P>
+<P>If you change a single action in a LMP file all the
+rest is garbage because all monsters now behave totally different and sooner or
+later (sooner) you run into a wall. This can't happen in a DEM file. The full
+movement (of all objects) is stored in it.</P>
+<P>This confronts us with new opportunities but also new problems.</P>
+
+
+<H2><A NAME="ss3.3">3.3 Opportunities of the DEM format</A></H2>
+
+<P>With the <CODE>centerprint</CODE> message it is possible to include some
+<EM>sub-titles</EM> in a recording file to inform the watchers what will
+happen next.</P>
+<P>The player coordinates and the camera positions may be different. This makes it
+possible to simulate the DUKE NUKEM 3D feature of stationary cameras.
+The client doesn't draw the entity with the ``viewpoint''. This is in general
+the player entity itself but this entity can be
+changed to anything else with the setview message. 
+Another problem is the entity selection of the server,
+which sends to the client only the entities in sight (of the client). Therefore
+it is impossible to enlarge the distance between the camera and the 
+recording player too much. They both have to be on the same side of a wall.</P>
+<P>For people with too much spare-time Quake can replace a full 3D modelling
+system for cartoons or the like.</P>
+<P>The demo file can contain console commands, which the client runs during
+replay. With this feature it should be possible to write a screenshot after
+every time stamp in the demo file. This makes it very easy to create a 
+MPEG movie out of a DEM file.</P>
+
+
+<H2><A NAME="ss3.4">3.4 Problems of the DEM format</A></H2>
+
+<P>It is trivial to remove the ``godmode ON'' and other cheat messages from a
+recording. All the action doesn't change at all. These messages are only 
+text print commands and the client behaviour doesn't depend on them.</P>
+<P>Fortunately I found a redundancy in the DEM format, which allows to detect a
+``godmode'' cheater: Every damage message contains the
+health and armor decrease value. The next status line description (it contains
+the health and armor values to be displayed) can so be checked.  </P>
+
+
+<HR>
+<A HREF="dem-1.0.2-2.html">Previous</A>
+<A HREF="dem-1.0.2-4.html">Next</A>
+<A HREF="dem-1.0.2.html#toc3">Table of Contents</A>
+</BODY>
+</HTML>

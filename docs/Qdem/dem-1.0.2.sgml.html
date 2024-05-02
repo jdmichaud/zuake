@@ -1,0 +1,1522 @@
+<!doctype linuxdoc system>
+<article>
+<title>The unofficial DEM format description
+<author>Uwe Girlich, 
+<tt><htmlurl url="mailto:girlich@aix520.informatik.uni-leipzig.de"
+name="girlich@aix520.informatik.uni-leipzig.de"></tt>
+<date>v1.0.2, 7/30/96
+<abstract>
+This document describes the DEM file format. This file format is the result of
+``recording'' a game in Quake.
+This documentation covers the versions 0.91 through 1.01.
+</abstract>
+
+<toc>
+
+<sect>Introduction
+<p>
+<sect1>Recording and Playback
+<p>
+Recording a game in Quake is as easy as playing it: you need some console
+commands to do it well. 
+<p>
+To create a single player DEM file start the game as usual and use the console
+command <tt>record name level [cdtrack]</tt>. This starts <tt>level</tt> with
+the currently selected skill and writes a record in <tt>name.dem</tt>.
+The recording will be written during all the play and this record file may 
+grow unpredictable. Please make sure that you have some MB free disk space.
+To stop this recording use <tt>stop</tt> or even quit the whole game 
+(<tt>quit</tt>). To play it back, use the commands <tt>playdemo name</tt>
+or <tt>timedemo name</tt>. 
+<p>
+To create a multi player DEM file start a ``listen'' server 
+(recording from a dedicated server doesn't work) and use again the 
+<tt>record</tt> command. This starts the selected level and the player at the
+server is alone in this level. Now all the other clients can connect to the 
+server as usual and play what they like (deathmatch or team). The recording 
+lasts until the player at the listen server uses the <tt>disconnect</tt>, 
+<tt>stop</tt> or <tt>quit</tt> command. The recording is from the point of
+view of the player at the listen server (client 1). The playback 
+works as in the single player case.
+
+<sect1>Versions
+<p>
+The documentation covers the following versions of Quake:
+<quote><tabular ca="ll">
+MS-DOS Shareware <colsep>0.91<rowsep>
+MS-DOS Shareware <colsep>0.92<rowsep>
+MS-DOS Shareware <colsep>1.00<rowsep>
+MS-DOS Shareware <colsep>1.01<rowsep>
+LINUX <colsep>0.92<rowsep>
+</tabular></quote>
+I could not find any important structural differences between these 5 versions.
+I actually write and check my documentation with LINUX and verify from time to
+time the MS-DOS recordings. 
+<p>
+This documentation isn't complete yet. Much decoding work remains to do
+(when I find the registered version in the mail) but I think this version 
+it will help a lot in the understanding of the DEM format.
+
+<sect>Basics on the used client/server architecture
+<p>
+Unlike DOOM and similar games Quake uses a ``server'' process (or even
+computer) which ``does'' all the game play. The ``clients'' (at least one)
+send to the server all input events (keys, mouse etc.) and receive
+all necessary information to draw the current picture. This prevents Quake
+from inconsistencies and the network load increases linear with the clients
+and not quadratic.
+<p>
+The communication between server and clients is an asynchronous one. 
+If you don't
+press any key, your computer won't send any packets to the server. But you 
+receive from time to time (the network is unpredictable) a packet to describe
+the state of your client. It is obvious, that these packets must contain some
+time stamp information, the positions of all monsters in sight and some
+player state information like the current weapon, ammo etc.
+<p> 
+And exactly this is the
+DEM file format: the recording of all packets from the server to that client,
+who recorded the game (the first client). I call these packets 
+``blocks of messages'' and the
+single information (time, position, ammo etc.) ``message''.
+<p>
+Whether the (listen) server process itself or the
+client process does the actual recording (file write access) isn't known but
+it is irrelevant for the understanding of the recording process.
+
+<sect>Some remarks on the used demo format
+<p>
+<sect1>Advertising
+<p>
+As the clever reader may know I'm the author of LMPC, the LMP/DMO/DEM
+Control Center. I recently included a DEM format support in it. This means:
+<itemize>
+<item>``recompile'' an existing DEM file to a simple text file (is
+ready and working) and
+<item>``compile'' such a (modified) text file back to a DEM file (I'm just
+understanding how <tt>flex</tt> and <tt>bison</tt> do work).
+</itemize>
+With such a tool it is very easy to analyze a DEM file but you can change it
+as well and so create a DEM file of a Quake game you never played.
+
+<sect1>Difference to DOOM
+<p>
+The recording of a DOOM game consists only of the player input. All the
+rest is random-number dependent but totally deterministic and will be 
+recalculated during the playback.
+<p>
+If you change a single action in a LMP file all the
+rest is garbage because all monsters now behave totally different and sooner or
+later (sooner) you run into a wall. This can't happen in a DEM file. The full
+movement (of all objects) is stored in it.
+<p>
+This confronts us with new opportunities but also new problems.
+
+<sect1>Opportunities of the DEM format
+<p>
+With the <tt>centerprint</tt> message it is possible to include some
+<em>sub-titles</em> in a recording file to inform the watchers what will
+happen next.
+<p>
+The player coordinates and the camera positions may be different. This makes it
+possible to simulate the DUKE NUKEM 3D feature of stationary cameras.
+The client doesn't draw the entity with the ``viewpoint''. This is in general
+the player entity itself but this entity can be
+changed to anything else with the setview message. 
+Another problem is the entity selection of the server,
+which sends to the client only the entities in sight (of the client). Therefore
+it is impossible to enlarge the distance between the camera and the 
+recording player too much. They both have to be on the same side of a wall.
+<p>
+For people with too much spare-time Quake can replace a full 3D modelling
+system for cartoons or the like.
+<p>
+The demo file can contain console commands, which the client runs during
+replay. With this feature it should be possible to write a screenshot after
+every time stamp in the demo file. This makes it very easy to create a 
+MPEG movie out of a DEM file.
+
+<sect1>Problems of the DEM format
+<p>
+It is trivial to remove the ``godmode ON'' and other cheat messages from a
+recording. All the action doesn't change at all. These messages are only 
+text print commands and the client behaviour doesn't depend on them.
+<p>
+Fortunately I found a redundancy in the DEM format, which allows to detect a
+``godmode'' cheater: Every damage message contains the
+health and armor decrease value. The next status line description (it contains
+the health and armor values to be displayed) can so be checked.  
+
+<sect>Some general remarks on the recording structure
+<p>
+<sect1>Entity
+<p>
+An entity is an object. This may be the whole level (described by a BSP file),
+the player (described by a MDL file), an explosion (described by a SPR file) or
+the like.
+<p>
+There are different kinds of entities.
+
+<sect2>Static Entity
+<p>
+A static entity doesn't interact with the rest of the game. These are flames
+(<tt>progs/flame.mdl</tt>) and the like. It will be
+created by the spawnstatic message. 
+It will never be necessary to reference such an entity. They don't get an
+entity number. The maximum number of static entities is 127.
+
+<sect2>Dynamic Entity
+<p>
+A dynamic entity is anything which changes its behaviour or its appearance.
+These are ammunition boxes, spinning armors, player models and the like.
+A dynamic entity will be created by the spawnbaseline
+message. The maximum number of dynamic entities is 449.
+
+<sect2>Temporary Entity
+<p>
+A temporary entity will be created by the temp_entity
+message.
+A temporary entity is a (as the name indicates) short time entity.
+
+Quake uses these entities for hits on the wall (point-like entities) or for the
+Thunderbolt flash (line-like entities).
+
+For more information on temporary entities look in section 
+<ref id="temp_entity" name="temp_entity">.
+
+<sect1>Life-cycles
+<p>
+The Quake objects pass different life phases. The following information is not
+DEM specific but it may be of general interest to understand the 
+co-operation of all the messages.
+
+<sect2>Armor
+<p>
+<itemize>
+<item>To enable the client to display an armor the serverinfo message asks 
+for the 
+``progs/armor.mdl'' model file and the ``items/armor1.wav'' sound file.
+<item>The armor starts its life with a spawnbaseline message during the
+initialize phase. The armor is now a dynamic entity and spins around. 
+<item>The corresponding updateentity message appears only, if the camera is 
+near enough to see the armor.
+<item>The player gets it in the play. This results in the sound message
+``items/armor1.wav''
+and a print message ``you got armor'' and the stufftext message 
+``bf&bsol;n'' to make a short flash. 
+<item>The updateentity message for the armor
+doesn't appear ever again: the player got it.
+<item>From this moment the 
+corresponding bit in the <tt>items</tt> variable in the clientdata message
+will be 1 and the <tt>armorvalue</tt> variable get its maximum (100/150/200).
+From the <tt>items</tt> bit follows the color of the picture to be drawn in 
+the lower left corner of the status line.
+<item>Now the player may be hit by a grenade. The total damage value
+(damage=take+save) will be 
+split in take (<tt>health-=take</tt>) and save (<tt>armorvalue-=save</tt>). 
+The save amount depends on the armor type (none/green/yellow/red):
+<tt>save=0.0/0.3/0.6/0.8*damage</tt>. 
+The damage message in the DEM file tells the 
+reduction of the current armor. With the old clientdata value and the 
+reduction it is easy to recompute the new clientdata <tt>armor</tt> value.
+Any difference betrayes the cheat code player. 
+<item>After some severe hits the 
+<tt>armorvalue</tt> variable is 0 and the <tt>items</tt> bit falls back to 0 as
+well. There is no armor anymore.
+</itemize>
+
+<sect2>(Multi) Player
+<p>
+The following describes the deathmatch DEM messages of the two players Alice
+and Bob. Alice records the game from her <tt>-listen 3</tt> server. 
+<p>
+<itemize>
+<item>The serverinfo message contains the ``maxclients 3'' command to show
+how many clients are (at most) in this recording.
+<item>During the 1st initialization phase there are 3 spawnbaseline messages to 
+create the player models. In the 2nd initialization phase player 0 gets its name
+(Alice), color and frag count (0) . The other 2 players get an empty name
+string. In the 3rd phase Alice gets again her name and color. 
+All these phases are controlled by signonnum messages.
+<item>The game starts. Alice (entity 1) is alone in the game and looks around.
+<item>Bob connects to Alice's server and it appears entity 2 (Bob's player
+model) a transport end temporary entity and a print message 
+(``Bob entered the game'') to inform everyone. Then the player 1 (Bob) gets his
+updatename and updatecolors message. 
+<item>Alice doesn't hesitate and runs for him and shoots him with the Shotgun. 
+During every shot the clientdata message reduces the ammo count,
+the angles&lsqb;0&rsqb; command shows the wobble of Alice's screen and 
+the weaponframe
+command selects the corresponding weapon frames. There is a sound message
+to start the <tt>weapons/guncock.wav</tt> file. Entity 1 gets
+its attack_state command. Alice hits Bob and so appear many particle messages
+(blood). 
+Every Shotgun shot contains 6 parts. This means the shot can create 6 particles
+(full hit) and 0 temporary entities (type 2: wall hits) or 0 particles and 6
+temporary entities or anything in between. If there was at least one particle
+Bob creates a sound message to start <tt>player/pain?.wav</tt>.
+<item>Alice kills Bob. This creates the sound message to start 
+<tt>player/death1.wav</tt>. Then comes the updatefrags message to give Alice
+1 frag and a print message to inform everyone ``Bob chewed on Alice's 
+boomstick''. A new entity will be created on the fly with an updateentity
+message to display Bob's backpack. 
+<item>Bob is dead, his entity 2 model remains in the death frame.
+<item>After some
+seconds he starts again by pressing <tt>SPACE</tt>. He reappears in a 
+totally different part of the level. The dead body transforms from entity 2
+to entity 4 (maxclients+1) and a temporary entity (transport end) informs
+about his return. He is out of sight from the point of Alice's view. This 
+means there is no entity 2 updateentity message.
+<item>Bob runs to Alice's room. He goes through a slipgate and appears with
+4 temporary entities (type 11: transport end) and the entity 2 in her room.
+<item>Bob shoots and kills Alice. The scenario is the same as above. Only
+the damage messages appear now too, because Alice was hit.
+<item>Bob uses the say console command (<tt>say this sucks</tt>) and in the 
+DEM file appears a print message ``Bob: this sucks''. 
+<item>Bob disconnects from Alice's server. This results in a print message
+``Bob left the game with 1 frags'' and updatename and updatecolor messages
+to remove client 2 (or player 1). It is a bit strange but there are 2 
+updatefrags messages: player 1 gets first 0 frags (this I understand) and then
+again 1 frag (this I don't understand at all).
+<item>Entity 2 represents now the dead player 1.
+<item>Alice spins around (it is possible even if you are dead) and the two
+dead bodies from Bob are totally white
+because they represent player 1 and he got (as he left) the updatecolor message
+with the standard colors 0 and 0. She is alone, restarts again her play,
+goes to the level end slipgate and get the ranking screen (intermission
+message) with only one player
+(Alice). Then she stops the recording. The DEM file ends with a disconnect 
+message.
+</itemize>
+
+<sect2>Medikits, Chthon, etc.
+<p>
+will be included later (anyone volunteer?)
+
+<sect>File structure
+<p>
+To describe the file structure, which is very complicated, I use 
+C like program fragments and <tt>struct</tt> definitions. This 
+simplifies my task a lot. 
+<p>
+I invented all used names (messages, variables etc.) for myself, took them 
+from the Quake binary, QuakeEd or from the QuakeC examples. 
+<p>
+All DEM files start with an ASCII string of the cd track which was given
+to the <tt>record</tt> command. The string is terminated by a new line
+character (<tt>0x0A</tt>). If you didn't give a cd track number the string
+is ``-1''. This means almost all DEM files start with ``-1&bsol;n''. 
+It seems that this header was included at the very end of the developement.
+It doesn't fit to the rest at all.
+<p>
+All the rest of the DEM file consists of ``blocks'' of ``messages''.
+<sect1>Block of Messages
+<p>
+At first some coordinate <tt>typedef</tt>'s:
+<tscreen><verb>typedef float vec_t;
+
+typedef vec_t[3] vec3_t;</verb></tscreen>
+
+This is the block structure:
+<tscreen><verb>typedef struct {
+                 long            blocksize;
+                 vec3_t          angles;
+                 char[blocksize] messages;
+               } block_t;</verb></tscreen>
+A block of messages starts with a size. Then follow 3 angles which describe
+the camera viewing direction. All the rest of a block are bytes which 
+form one or more messages.
+<p>
+I believe that one block is one network packet from the server to the client.
+
+<sect1>Message
+<p>
+This is the message structure:
+<tscreen><verb>typedef struct {
+                 unsigned char ID;
+                 char[???]     messagecontent;
+               } message_t;</verb></tscreen>
+The length of a message depends on its type (or <tt>ID</tt>).
+
+<sect1>Auxilliary routines
+<p>
+Here comes the definition of some small auxilliary routines to 
+simplify
+the main message description. <tt>get_next_unsigned_char</tt>,
+<tt>get_next_signed_char</tt>, <tt>get_next_short</tt> and
+<tt>get_next_long</tt> are basic functions and they do exactly what they are 
+called. Please note: <tt>byte</tt>, <tt>char</tt> or <tt>short</tt> will be 
+converted to <tt>long</tt>.
+Second note: all multi-byte structures in the DEM file are Intel ordered.
+
+In the following I often use a count variable 
+<tscreen><verb>int i;</verb></tscreen>
+without declaration. I hope this does not confuse you. 
+
+<tscreen><verb>long ReadByte
+{
+  return (long) get_next_unsigned_char;
+}</verb></tscreen>
+
+<tscreen><verb>long ReadChar
+{
+  return (long) get_next_signed_char;
+}</verb></tscreen>
+
+<tscreen><verb>long ReadShort
+{
+  return (long) get_next_short;
+}</verb></tscreen>
+
+<tscreen><verb>long ReadLong
+{
+  return get_next_long;
+}</verb></tscreen>
+
+Note: A signed angle in a single byte. There are only 256 possible 
+direction to look into.
+
+<tscreen><verb>vec_t ReadAngle
+{
+  return (vec_t) ReadChar / 256.0 * 360.0;
+}</verb></tscreen>
+
+<tscreen><verb>vec_t ReadCoord
+{
+  return (vec_t) ReadShort * 0.125;
+}</verb></tscreen>
+
+The string reading stops at '&bsol;0' or after 0x7FF bytes. The internal
+buffer has only 0x800 bytes available.
+
+<tscreen><verb>char* ReadString
+{
+  char* string_pointer;
+  char string_buffer[0x800];
+
+  string_pointer=string_buffer;
+  for (i=0 ; i<0x7FF ; i++, string_pointer++) {
+    if (! (*string_pointer = ReadChar) ) break;
+  }
+  *string_pointer = '\0';
+  return strdup(string_buffer);
+}</verb></tscreen>
+
+<tscreen><verb>long ReadEntity
+{
+  return ReadShort;
+}</verb></tscreen>
+
+<sect>List of all message types
+<p>
+The easiest way to explain a message is to give a short
+C like program fragment to parse such a message. Each message can be
+described by its <tt>ID</tt> or its name. 
+<p>
+
+<sect1>bad<p><descrip><tag><tt>ID</tt></tag><tt>0x00</tt>
+
+<tag>purpose</tag>
+Something is bad. This message should never appear.
+
+<tag>parse routine</tag>
+none
+
+</descrip>
+
+<sect1>nop<p><descrip><tag><tt>ID</tt></tag><tt>0x01</tt>
+
+<tag>purpose</tag>
+No operation.
+
+<tag>parse routine</tag>
+none
+
+</descrip>
+
+<sect1>disconnect<p><descrip><tag><tt>ID</tt></tag><tt>0x02</tt>
+
+<tag>purpose</tag>
+Disconnect from the server. Stops the game.
+
+<tag>parse routine</tag>
+none
+
+</descrip>
+
+<sect1>updatestat<p><descrip><tag><tt>ID</tt></tag><tt>0x03</tt>
+
+<tag>purpose</tag>
+Updates directly any values in the player state.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long index;</tt></tag> is the index in the <tt>playerstate</tt>
+array.
+Possible indices are:
+<quote><tabular ca="rl">
+index <colsep>variable<rowsep>
+0 <colsep><tt>health</tt><rowsep>
+1 <colsep>??? (not used)<rowsep>
+2 <colsep><tt>weaponmodel</tt><rowsep>
+3 <colsep><tt>currentammo</tt><rowsep>
+4 <colsep><tt>armorvalue</tt><rowsep>
+5 <colsep><tt>weaponframe</tt><rowsep>
+6 <colsep><tt>ammo_shells</tt><rowsep>
+7 <colsep><tt>ammo_nails</tt><rowsep>
+8 <colsep><tt>ammo_rockets</tt><rowsep>
+9 <colsep><tt>ammo_cells</tt><rowsep>
+10 <colsep><tt>weapon</tt><rowsep>
+11 <colsep><tt>total_secrets</tt><rowsep>
+12 <colsep><tt>total_monsters</tt><rowsep>
+13 <colsep><tt>found_secrets</tt><rowsep>
+14 <colsep><tt>found_monsters</tt><rowsep>
+15 <colsep>???<rowsep>
+. <colsep><rowsep>
+. <colsep><rowsep>
+. <colsep><rowsep>
+31 <colsep>???<rowsep>
+</tabular></quote>
+Normal DEM files use index 11 to 14 only. 
+
+<tag><tt>long value;</tt></tag> is the new value.
+
+<tag><tt>long playerstate[32];</tt></tag> is the array to describe the
+player state. Many other messages change (indirectly) some values in it. 
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>index = ReadByte;
+if (index > 0x1F) {
+  error("svc_updatestat: %i is invalid", index);
+}
+value = ReadLong;
+playerstate[index] = value;</verb></tscreen>
+
+</descrip>
+
+<sect1>version<p><descrip><tag><tt>ID</tt></tag><tt>0x04</tt>
+
+<tag>purpose</tag>
+This message defines the version of the server. I never found such a message in
+a DEM file. It may be absorbed by the <tt>serverinfo</tt> message.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long serverprotocol;</tt></tag> is the version number of the
+server. It should be <tt>0x0F</tt>.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>serverprotocol = ReadLong;
+if (serverprotocol != 0x0F) {
+  error("CL_ParseServerMessage: Server is protocol %i instead of %i\n", 
+                                                 serverprotocol, 0x0F);
+}</verb></tscreen>
+
+</descrip>
+
+<sect1>setview<p><descrip><tag><tt>ID</tt></tag><tt>0x05</tt>
+
+<tag>purpose</tag>
+Sets the camera position to the origin of this entity.  
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long entity;</tt></tag> is the entity with the camera.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>entity = ReadShort;</verb></tscreen>
+
+</descrip>
+
+<sect1>sound<p><descrip><tag><tt>ID</tt></tag><tt>0x06</tt>
+
+<tag>purpose</tag>
+This message starts the play of a sound at a specific point.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long mask;</tt></tag> is a bitmask to reduce the amount of data.
+
+<tag><tt>float vol;</tt></tag> is the volume of the sound (0.0 off, 1.0 max)
+
+<tag><tt>float attenuation;</tt></tag> is the attenuation of the sound.
+Possible values (for all kind of sounds) are:
+<quote><tabular ca="lll">
+value <colsep>QuakeC <colsep>purpose<rowsep>
+0 <colsep>ATTN&lowbar;NONE <colsep>
+i. e. player's death sound doesn't get an attenuation<rowsep>
+1 <colsep>ATTN&lowbar;NORM <colsep>the normal attenuation<rowsep>
+2 <colsep>ATTN&lowbar;IDLE <colsep>idle monsters get this attenuation<rowsep>
+3 <colsep>ATTN&lowbar;STATIC <colsep>spawnstaticsound messages get this attenuation<rowsep>
+</tabular></quote>
+
+<tag><tt>long channel;</tt></tag> is the sound channel. There are 8 possible
+sound channels in Quake but the game uses 5 only. 
+Possible values are:
+<quote><tabular ca="lll">
+value <colsep>QuakeC <colsep>purpose<rowsep>
+0 <colsep>CHAN&lowbar;AUTO <colsep>big powerups<rowsep>
+1 <colsep>CHAN&lowbar;WEAPON <colsep>weapon use sounds<rowsep>
+2 <colsep>CHAN&lowbar;VOICE <colsep>pain calls<rowsep>
+3 <colsep>CHAN&lowbar;ITEM <colsep>item get sounds<rowsep>
+4 <colsep>CHAN&lowbar;BODY <colsep>jump and fall sounds<rowsep>
+</tabular></quote>
+
+<tag><tt>long entity;</tt></tag> is the entity which caused the sound.
+
+<tag><tt>long soundnum;</tt></tag> is the sound number in the sound-table.
+
+<tag><tt>ve3_t origin;</tt></tag> is the origin of the sound.
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>long entity_channel; // combined variable
+
+mask = ReadByte;
+vol = mask & 0x01 ? (float) ReadByte / 255.0 : 1.0;
+attenuation = mask & 0x02 ? (float) ReadByte / 64.0 : 1.0;
+entity_channel = ReadShort;
+channel = entity_channel & 0x07;
+entity = (entity_channel >> 3) & 0x1FFF;
+soundnum = ReadByte;
+for (i=0 ; i<3 ; i++) origin[i] = ReadCoord;</verb></tscreen>
+
+</descrip>
+
+<sect1>time<p><descrip><tag><tt>ID</tt></tag><tt>0x07</tt>
+
+<tag>purpose</tag>
+This is the time stamp of a block of messages. A time message should appear 
+in every block.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>float time;</tt></tag> is the time in seconds from the beginning of 
+the current level (not of the recording).
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>time = ReadFloat;</verb></tscreen>
+
+</descrip>
+
+<sect1>print<p><descrip><tag><tt>ID</tt></tag><tt>0x08</tt>
+
+<tag>purpose</tag>
+The client prints the text in the top left corner of the screen.
+The text appears on the console as well.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>char* text;</tt></tag> is the text to be displayed.
+The text contains something like ``You get 5 shells''. 
+There are special non-printable characters in the text: ``&bsol;n'' means new
+line and ``&bsol;002'' changes the color of the following text.
+The value 2 may be a color number but I'm not sure about this.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>text = ReadString;</verb></tscreen>
+
+</descrip>
+
+<sect1>stufftext<p><descrip><tag><tt>ID</tt></tag><tt>0x09</tt>
+
+<tag>purpose</tag>
+The client transfers the text to the console and runs it.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>char* text;</tt></tag> is the command, which the client has to 
+execute. These are commands like ``bf&bsol;n'' to make a flash after you take
+something.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>text = ReadString;</verb</tscreen>
+
+</descrip>
+
+<sect1>setangle<p><descrip><tag><tt>ID</tt></tag><tt>0x0A</tt>
+
+<tag>purpose</tag>
+This message set the camera orientation.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>vec3_t angles;</tt></tag> is the new camera orientation.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>for (i=0 ; i<3 ; i++) angles[i] = ReadAngle;</verb></tscreen>
+
+</descrip>
+
+<sect1>serverinfo<p><descrip><tag><tt>ID</tt></tag><tt>0x0B</tt>
+
+<tag>purpose</tag>
+This message is usually one of the first messages after a level start. 
+It loads model and sound files.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long serverversion;</tt></tag> is the version of the server.
+It should be the same as the version of the client. Up to now this version was
+always <tt>0x0F</tt>.
+
+<tag><tt>long maxclients;</tt></tag> is the maximum number of clients in this
+recording. It is 1 in single player recordings or the number after the
+<tt>-listen</tt> command line parameter.
+
+<tag><tt>long multi;</tt></tag> is 0 in single player recordings and 1 in
+multi player recordings. It actually toggles the ranking screen at the end of
+a level.
+
+<tag><tt>char* mapname;</tt></tag> is the name of the level.
+
+<tag><tt>char* precache_models[256];</tt></tag> is the model-table. It will be
+ filled
+up with model names. Many other messages contain an index in this array.
+The first used index is 1.
+
+<tag><tt>long nummodels;</tt></tag> is the number of models in the 
+model-table.
+
+<tag><tt>char* precache_sounds[256];</tt></tag> is the sound-table. It will be
+ filled
+up with sound names. Many other messages contain an index in this array.
+The first used index is 1.
+
+<tag><tt>long numsounds;</tt></tag> is the number of sounds in the 
+sound-table.
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>serverversion = ReadLong;
+if (serverversion != 0x0F) { 
+  error("Server returned version %i, not %i", serverversion, 0x0F);
+}
+maxclients = ReadByte;
+multi = ReadByte;
+mapname = ReadString;
+nummodels = 0;
+do {
+  if (++nummodels > 255) error("Server sent too many model_precache");
+  precache_models[nummodels] = ReadString;
+} while (*precache_models[nummodels]);
+numsounds = 0;
+do {
+  if (++numsounds > 255) error("Server sent too many sound_precache");
+  precache_sounds[numsounds] = ReadString;
+} while (*precache_sounds[numsounds]);</verb></tscreen>
+
+</descrip>
+
+<sect1>lightstyle<p><descrip><tag><tt>ID</tt></tag><tt>0x0C</tt>
+
+<tag>purpose</tag>
+This message defines a light style.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long style;</tt></tag> is the light style number.
+<tag><tt>char* string;</tt></tag> is a string of letters ``a'' .. ``z'',
+where ``a'' means black and ``z'' white.
+All known effects from nervous flashing: ``az'' to slow dimming: 
+``zyxwvu ... edcba'' can so be described.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>style = ReadByte;
+string = ReadString;</verb></tscreen>
+
+</descrip>
+
+<sect1>updatename<p><descrip><tag><tt>ID</tt></tag><tt>0x0D</tt>
+
+<tag>purpose</tag>
+This message sets the player name.
+
+<tag><tt>variables</tt></tag>
+<descrip>
+<tag><tt>long player;</tt></tag> is the internal player number (client 1
+is player number 0).
+<tag><tt>char* netname;</tt></tag> is the new player name.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>player = ReadByte;
+netname = ReadString;</verb></tscreen>
+
+</descrip>
+
+<sect1>updatefrags<p><descrip><tag><tt>ID</tt></tag><tt>0x0E</tt>
+
+<tag>purpose</tag>
+This message updates the frag count of a specific player.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long player;</tt></tag> is the internal player number (client 1 
+is player number 0).
+<tag><tt>long frags;</tt></tag> is the new frag count for this player.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>player = ReadByte;
+frags = ReadShort;</verb></tscreen>
+
+</descrip>
+
+<sect1>clientdata<p><descrip><tag><tt>ID</tt></tag><tt>0x0F</tt>
+
+<tag>purpose</tag>
+This message updates the status line and the camera coordinates.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long mask;</tt></tag> is a bitmask to show which values are coming.
+
+<tag><tt>float view_ofs_z;</tt></tag> is an additional view offset because
+the camera is at the origin of the entitiy and not at the eyes 
+(is -8 if the player is death). 
+
+<tag><tt>float ang_ofs_1;</tt></tag> is an additional offset of the first
+angle.
+
+<tag><tt>vec3_t angles;</tt></tag> indicates the camera direction change.
+
+<tag><tt>vec3_t vel;</tt></tag> indicates the camera velocity.
+
+<tag><tt>long items;</tt></tag> contains a bit mask for the inventory:
+<tabular ca="rlll">
+bit <colsep>value <colsep>QuakeC <colsep>purpose<rowsep>
+ 0 <colsep><tt>0x00000001</tt> <colsep>IT&lowbar;SHOTGUN <colsep>
+Shotgun (should be always 1)<rowsep>
+ 1 <colsep><tt>0x00000002</tt> <colsep>IT&lowbar;SUPER&lowbar;SHOTGUN <colsep>
+Double-barrelled Shotgun<rowsep>
+ 2 <colsep><tt>0x00000004</tt> <colsep>IT&lowbar;NAILGUN <colsep>
+Nailgun<rowsep>
+ 3 <colsep><tt>0x00000008</tt> <colsep>IT&lowbar;SUPER&lowbar;NAILGUN <colsep>
+Supernailgun<rowsep>
+ 4 <colsep><tt>0x00000010</tt> <colsep>IT&lowbar;GRENADE&lowbar;LAUNCHER <colsep>
+Grenade Launcher<rowsep>
+ 5 <colsep><tt>0x00000020</tt> <colsep>IT&lowbar;ROCKET&lowbar;LAUNCHER <colsep>
+Rocket Launcher<rowsep>
+ 6 <colsep><tt>0x00000040</tt> <colsep>IT&lowbar;LIGHTNING <colsep>
+Thunderbolt<rowsep>
+ 7 <colsep><tt>0x00000080</tt> <colsep>IT&lowbar;EXTRA&lowbar;WEAPON <colsep>
+extra weapon (there is no extra weapon)<rowsep>
+ 8 <colsep><tt>0x00000100</tt> <colsep>IT&lowbar;SHELLS <colsep>
+Shells are active<rowsep>
+ 9 <colsep><tt>0x00000200</tt> <colsep>IT&lowbar;NAILS <colsep>
+Flechettes are active<rowsep>
+10 <colsep><tt>0x00000400</tt> <colsep>IT&lowbar;ROCKETS <colsep>
+Grenades are active<rowsep>
+11 <colsep><tt>0x00000800</tt> <colsep>IT&lowbar;CELLS <colsep>
+Cells are active<rowsep>
+12 <colsep><tt>0x00001000</tt> <colsep>IT&lowbar;AXE <colsep>
+Axe (should be always 1)<rowsep>
+13 <colsep><tt>0x00002000</tt> <colsep>IT&lowbar;ARMOR1 <colsep>
+green Armor<rowsep>
+14 <colsep><tt>0x00004000</tt> <colsep>IT&lowbar;ARMOR2 <colsep>
+yellow Armor<rowsep>
+15 <colsep><tt>0x00008000</tt> <colsep>IT&lowbar;ARMOR3 <colsep>
+red Armor<rowsep>
+16 <colsep><tt>0x00010000</tt> <colsep>IT&lowbar;SUPERHEALTH <colsep>
+Megahealth<rowsep>
+17 <colsep><tt>0x00020000</tt> <colsep>IT&lowbar;KEY1 <colsep>
+silver (keycard or runekey or key)<rowsep>
+18 <colsep><tt>0x00040000</tt> <colsep>IT&lowbar;KEY2 <colsep>
+gold (keycard or runekey or key)<rowsep>
+19 <colsep><tt>0x00080000</tt> <colsep>IT&lowbar;INVISIBILITY <colsep>
+Ring of Shadows<rowsep>
+20 <colsep><tt>0x00100000</tt> <colsep>IT&lowbar;INVULNERABILITY <colsep>
+Pentagram of Protection<rowsep>
+21 <colsep><tt>0x00200000</tt> <colsep>IT&lowbar;SUIT <colsep>
+Biosuit<rowsep>
+22 <colsep><tt>0x00400000</tt> <colsep>IT&lowbar;QUAD <colsep>
+Quad Damage<rowsep>
+23 <colsep><tt>0x00800000</tt> <colsep>unknown <colsep>
+unknown (is 0)<rowsep>
+24 <colsep><tt>0x01000000</tt> <colsep>unknown <colsep>
+unknown (is 0)<rowsep>
+25 <colsep><tt>0x02000000</tt> <colsep>unknown <colsep>
+unknown (is 0)<rowsep>
+26 <colsep><tt>0x04000000</tt> <colsep>unknown <colsep>
+unknown (is 0)<rowsep>
+27 <colsep><tt>0x08000000</tt> <colsep>unknown <colsep>
+unknown (is 0)<rowsep>
+28 <colsep><tt>0x10000000</tt> <colsep>unknown <colsep>
+Rune 1<rowsep>
+29 <colsep><tt>0x20000000</tt> <colsep>unknown <colsep>
+Rune 2<rowsep>
+30 <colsep><tt>0x40000000</tt> <colsep>unknwon <colsep>
+Rune 3<rowsep>
+31 <colsep><tt>0x80000000</tt> <colsep>unknown <colsep>
+Rune 4<rowsep>
+</tabular>
+You can find the default value for <tt>items</tt> in the parse routine: 
+<tt>0x4001</tt>. It looks like a programmer's mistake because this means
+Shotgun any yellow Armor. It should be <tt>0x1001</tt>: Shotgun and Axe.
+
+<tag><tt>long weaponframe;</tt></tag> is the frame of the weapon model.
+
+<tag><tt>long armorvalue;</tt></tag> is the current armor.
+
+<tag><tt>long weaponmodel;</tt></tag> is the model number of the weapon in 
+the model-table.
+
+<tag><tt>long health;</tt></tag> is the current health.
+
+<tag><tt>long currentammo;</tt></tag> is the current number of the current 
+ammunition.
+
+<tag><tt>long ammo_shells;</tt></tag> is the current number of shells.
+
+<tag><tt>long ammo_nails;</tt></tag> is the current number of nails.
+
+<tag><tt>long ammo_rockets;</tt></tag> is the current number of rockets.
+
+<tag><tt>long ammo_cells;</tt></tag> is the current number of cells.
+
+<tag><tt>long weapon;</tt></tag> contains a bit mask for the current weapon:
+<quote><tabular ca="llll">
+bit <colsep>value <colsep>QuakeC <colsep>weapon<rowsep>
+? <colsep><tt>0x00</tt> <colsep>not available <colsep>Axe<rowsep>
+0 <colsep><tt>0x01</tt> <colsep>IT&lowbar;SHOTGUN <colsep>
+Shotgun<rowsep>
+1 <colsep><tt>0x02</tt> <colsep>IT&lowbar;SUPER&lowbar;SHOTGUN <colsep>
+Double-barrelled Shotgun<rowsep>
+2 <colsep><tt>0x04</tt> <colsep>IT&lowbar;NAILGUN <colsep>
+Nailgun<rowsep>
+3 <colsep><tt>0x08</tt> <colsep>IT&lowbar;SUPER&lowbar;NAILGUN<colsep>
+Supernailgun<rowsep>
+4 <colsep><tt>0x10</tt> <colsep>IT&lowbar;GRENADE&lowbar;LAUNCHER<colsep>
+Grenade Launcher<rowsep>
+5 <colsep><tt>0x20</tt> <colsep>IT&lowbar;ROCKET&lowbar;LAUNCHER<colsep>
+Rocket Launcher<rowsep>
+6 <colsep><tt>0x40</tt> <colsep>IT&lowbar;LIGHTNING<colsep>
+Thunderbolt<rowsep>
+7 <colsep><tt>0x80</tt> <colsep>IT&lowbar;EXTRA&lowbar;WEAPON<colsep>
+extra weapon (there is no extra weapon)<rowsep>
+</tabular></quote>
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>long uk_bit_b10, uk_bit_b11; // unknown (unused ??)
+
+mask = ReadShort;
+view_ofs_z = mask & 0x0001 ? (float) ReadChar : 22.0;
+ang_ofs_1 = mask & 0x0002 ? (float) ReadChar : 0.0; 
+angles[0] = mask & 0x0004 ? (vec_t) ReadChar : 0.0; 
+vel[0] = mask & 0x0020 ? (vec_t) ReadChar : 0.0;
+angles[1] = mask & 0x0008 ? (vec_t) ReadChar : 0.0; 
+vel[1] = mask & 0x0040 ? (vec_t) ReadChar : 0.0;
+angles[2] = mask & 0x0010 ? (vec_t) ReadChar : 0.0; 
+vel[2] = mask & 0x0080 ? (vec_t) ReadChar : 0.0;
+items = mask & 0x0200 ? ReadLong : 0x4001;
+uk_bit_b10 = mask & 0x0400 ? 1 : 0; // bit 10 
+uk_bit_b11 = mask & 0x0800 ? 1 : 0; // bit 11 
+weaponframe = mask & 0x1000 ? ReadByte : 0;
+armorvalue = mask & 0x2000 ? ReadByte : 0;
+weaponmodel = mask & 0x4000 ? ReadByte : 0; 
+health = ReadShort;  
+currentammo = ReadByte;
+ammo_shells = ReadByte;
+ammo_nails = ReadByte;
+ammo_rockets = ReadByte;
+ammo_cells = ReadByte;
+weapon = ReadByte;</verb></tscreen>
+
+</descrip>
+
+<sect1>stopsound<p><descrip><tag><tt>ID</tt></tag><tt>0x10</tt>
+
+<tag>purpose</tag>
+Stops a sound. I never found such a message in a DEM file.
+
+<tag>parse routine</tag>
+<tscreen><verb>long uk_short;  // unknown (an index??)
+
+uk_short = ReadShort;</verb></tscreen>
+
+</descrip>
+
+<sect1>updatecolors<p><descrip><tag><tt>ID</tt></tag><tt>0x11</tt>
+
+<tag>purpose</tag>
+Updates the colors of the specified player.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long player;</tt></tag> is the internal player number
+(client 1 is player 0).
+<tag><tt>long colors;</tt></tag> is the combined color of this player.
+<tag><tt>long shirtcolor;</tt></tag> is the color of the shirt
+(0 &lt;= <tt>shirtcolor</tt> &lt;= 3).
+<tag><tt>long pantscolor;</tt></tag> is the color of the pants
+(0 &lt;= <tt>pantscolor</tt> &lt;= 3).
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>player = ReadByte;
+colors = ReadByte;
+shirtcolor = (colors>>4) & 0x0F;
+pantscolor = colors & 0x0F;</verb></tscreen>
+
+</descrip>
+
+<sect1>particle<p><descrip><tag><tt>ID</tt></tag><tt>0x12</tt>
+
+<tag>purpose</tag>
+This starts particles flying around. This happens, if a barrel explodes or
+blood particles fly after being hit by an axe, shells or nails.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>vec3_t origin;</tt></tag> is the origin of the particles.
+
+<tag><tt>vec3_t vel;</tt></tag> is the velocity of the particles.
+
+<tag><tt>long color;</tt></tag> is the color of the particles (blood is 73).
+
+<tag><tt>long count;</tt></tag> is the number of the particles
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>for (i=0 ; i<3 ; i++) origin[i] = ReadCoord;
+for (i=0 ; i<3 ; i++) vel[i] = (vec_t) ReadChar * 0.0625;
+color = ReadByte;
+count = ReadByte;</verb></tscreen>
+
+</descrip>
+
+<sect1>damage<p><descrip><tag><tt>ID</tt></tag><tt>0x13</tt>
+
+<tag>purpose</tag>
+Tells how severe was a hit and from which points it came.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long save;</tt></tag> will be subtracted from the current armor.
+<tag><tt>long take;</tt></tag> will be subtracted from the current
+health.
+<tag><tt>vec3_t origin;</tt></tag> is the origin of the
+hit. It points to the weapon of a monster or player (not the origin of the
+monster entity) or it is (0,0,0) if the damage was caused by drowning or
+burning.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>save = ReadByte;
+take = ReadByte;
+for (i=0 ; i<3 ; i++) origin[i] = ReadCoord;</verb></tscreen>
+
+</descrip>
+
+<sect1>spawnstatic<label id="spawnstatic"><p><descrip><tag><tt>ID</tt></tag><tt>0x14</tt>
+
+<tag>purpose</tag>
+This message creates a static entity and sets the internal default values.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long StaticEntityCount;</tt></tag> is the number of already started
+static entities. The maximum number is 127.
+
+<tag><tt>long default_modelindex;</tt></tag> is the model number in the 
+model-table.
+
+<tag><tt>long default_frame;</tt></tag> is the frame number of the model.
+
+<tag><tt>long default_colormap;</tt></tag> is the colormap number to display 
+the model.
+
+<tag><tt>long default_skin;</tt></tag> is the skin number of the model. 
+This is used for things with different skins (like players or armors). 
+
+<tag><tt>vec3_t default_origin;</tt></tag> is the origin of the entity.
+
+<tag><tt>vec3_t default_angles;</tt></tag> is the orientation of the entity.
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>if (StaticEntityCount > 127) error("Too many static entities");
+StaticEntityCount++;
+default_modelindex = ReadByte;
+default_frame = ReadByte;
+default_colormap = ReadByte;
+default_skin = ReadByte;
+for (i=0 ; i<3 ; i++) {
+  default_origin[i] = ReadCoord;
+  default_angles[i] = ReadAngle;
+}</verb></tscreen>
+
+</descrip>
+
+<sect1>spawnbinary<p><descrip><tag><tt>ID</tt></tag><tt>0x15</tt>
+
+<tag>purpose</tag>
+This is OBSOLETE. It should never occur in DEM files.
+
+<tag>parse routine</tag>
+<tscreen><verb>error ("CL_ParseServerMessage: Illegible server message\n");</verb></tscreen>
+
+</descrip>
+
+<sect1>spawnbaseline<label id="spawnbaseline"><p><descrip><tag><tt>ID</tt></tag><tt>0x16</tt>
+
+<tag>purpose</tag>
+This message creates a dynamic entity and sets the internal default values.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long entity;</tt></tag> is the number of the entity.
+
+<tag><tt>long default_modelindex;</tt></tag> is the model number in the 
+model-table.
+
+<tag><tt>long default_frame;</tt></tag> is the frame number of the model.
+
+<tag><tt>long default_colormap;</tt></tag> is the colormap number to display 
+the model.
+
+<tag><tt>long default_skin;</tt></tag> is the skin number of the model. This is
+used for things with different skins (like players or armors).
+
+<tag><tt>vec3_t default_origin;</tt></tag> is the origin of the entity.
+
+<tag><tt>vec3_t default_angles;</tt></tag> is the orientation of the entity.
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>entity = ReadShort;
+if (entity > 449) error("CL_EntityNum: %i is an invalid number", entity);
+default_modelindex = ReadByte;
+default_frame = ReadByte;
+default_colormap = ReadByte;
+default_skin = ReadByte;
+for (i=0 ; i<3 ; i++) {
+  default_origin[i] = ReadCoord;
+  default_angles[i] = ReadAngle;
+}</verb></tscreen>
+
+</descrip>
+
+<sect1>temp_entity<label id="temp_entity"><p><descrip><tag><tt>ID</tt></tag><tt>0x17</tt>
+
+<tag>purpose</tag>
+This message creates a temporary entity.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long entitytype;</tt></tag> is the type of the temporary entity.
+There are two kinds of temporary entities:
+<descrip>
+<tag>point entity</tag> is a small point like entity.
+<tabular ca="rll">
+value <colsep>QuakeC <colsep>purpose<rowsep>
+0 <colsep>TE&lowbar;SPIKE <colsep>unknown<rowsep>
+1 <colsep>TE&lowbar;SUPERSPIKE <colsep>superspike hits (spike traps)<rowsep>
+2 <colsep>TE&lowbar;GUNSHOT <colsep>hit on the wall (Axe, Shotgun)<rowsep>
+3 <colsep>TE&lowbar;EXPLOSION <colsep>grenade/missile explosion<rowsep>
+4 <colsep>TE&lowbar;TAREXPLOSION <colsep>explosion of a tarbaby<rowsep>
+7 <colsep>TE&lowbar;WIZSPIKE <colsep>wizard's hit<rowsep>
+8 <colsep>TE&lowbar;KNIGHTSPIKE <colsep>hell knight's shot hit<rowsep>
+10 <colsep>TE&lowbar;LAVASPLASH <colsep>Chthon awakes and falls dead<rowsep>
+11 <colsep>TE&lowbar;TELEPORT <colsep>teleport end<rowsep>
+</tabular>
+<tag>large entity</tag> is a 2 dimensional entity.
+<quote><tabular ca="rll">
+value <colsep>QuakeC <colsep>purpose<rowsep>
+5 <colsep>TE&lowbar;LIGHTNING1 <colsep>flash of the Shambler<rowsep>
+6 <colsep>TE&lowbar;LIGHTNING2 <colsep>flash of the Thunderbolt<rowsep>
+9 <colsep>TE&lowbar;LIGHTNING3 <colsep>flash in e1m7 to kill Chthon<rowsep>
+</tabular></quote>
+</descrip>
+
+<tag><tt>long entity;</tt></tag> is the entity which created the temporary
+entity.
+
+<tag><tt>vec3_t origin;</tt></tag> is the origin of the entity.
+
+<tag><tt>vec3_t trace_endpos;</tt></tag> is the destination of the large
+temporary entity.
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>entitytype = ReadByte;
+if (entitytype > 11) 
+  error("CL_ParserTEnt: bad type");
+switch (entitytype) {
+  case 0,1,2,3,4,7,8,10,11:
+         for (i=0 ; i<3 ; i++) org[i] = ReadCoord;
+  break;
+  case 5,6,9:
+         entity = ReadEntity;
+         for (i=0 ; i<3 ; i++) origin[i] = ReadCoord;
+         for (i=0 ; i<3 ; i++) trace_endpos[i] = ReadCoord;
+  break;
+}</verb></tscreen>
+
+</descrip>
+
+<sect1>setpause<p><descrip><tag><tt>ID</tt></tag><tt>0x18</tt>
+
+<tag>purpose</tag>
+Set the pause state. The time stands still but all entities get their update
+messages.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long pausestate;</tt></tag> is 1 to start the pause and 0 to stop it.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>pausestate = ReadByte;
+if (pausestate) {
+  // pause is on
+}
+else {
+  // pause is off
+}</verb></tscreen>
+
+</descrip>
+
+<sect1>signonum<p><descrip><tag><tt>ID</tt></tag><tt>0x19</tt>
+
+<tag>purpose</tag>
+This message selects the client state.
+
+<tag>variables</tag>
+<descrip>
+
+<tag>long signon;</tag> is the client state. 
+The possible values are:
+<quote><tabular ca="ll">
+value <colsep>purpose<rowsep>
+1 <colsep>after model/sound precache, start spawning entities (``prespawn'')
+<rowsep>
+2 <colsep>start initializing light effects<rowsep>
+3 <colsep>start 3D rendering<rowsep>
+</tabular></quote>
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>signon = ReadByte;</verb></tscreen>
+
+</descrip>
+
+<sect1>centerprint<p><descrip><tag><tt>ID</tt></tag><tt>0x1A</tt>
+
+<tag>purpose</tag>
+Prints the specified text at the center of the screen.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>char* text;</tt></tag> is the text to be displayed.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>text = ReadString;</verb></tscreen>
+
+</descrip>
+
+<sect1>killedmoster<p><descrip><tag><tt>ID</tt></tag><tt>0x1B</tt>
+
+<tag>purpose</tag>
+This message indicates the death of a monster.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long killed_monsters;</tt></tag> is the number of killed monsters. 
+It may be displayed with the console command <tt>showscores</tt>.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>killed_mosters++;</verb></tscreen>
+
+</descrip>
+
+<sect1>foundsecret<p><descrip><tag><tt>ID</tt></tag><tt>0x1C</tt>
+
+<tag>purpose</tag>
+This message receives a client, if the player enters a secret area.
+It comes usually with a <tt>print</tt> message.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long found_secrets;</tt></tag> is the number of found secrets. It may
+be displayed with the console command <tt>showscores</tt>.
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>found_secrets++;</verb></tscreen>
+
+</descrip>
+
+<sect1>spawnstaticsound<p><descrip><tag><tt>ID</tt></tag><tt>0x1D</tt>
+
+<tag>purpose</tag>
+This message starts a static (ambient) sound not connected to an entity but to
+a position.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>vec3_t origin;</tt></tag> is the origin of 
+the sound.
+
+<tag><tt>long soundnum;</tt></tag> is the sound number in the sound-table.
+
+<tag><tt>float vol;</tt></tag> is the volume (0.0 off, 1.0 max)
+
+<tag><tt>float attenuation;</tt></tag> is the attenuation of the sound. 
+Possible values (for all kind of sounds) are:
+<quote><tabular ca="lll">
+value <colsep>QuakeC <colsep>purpose<rowsep>
+0 <colsep>ATTN&lowbar;NONE <colsep>
+i. e. player's death sound doesn't get an attenuation<rowsep>
+1 <colsep>ATTN&lowbar;NORM <colsep>the normal attenuation<rowsep>
+2 <colsep>ATTN&lowbar;IDLE <colsep>idle monsters get this attenuation<rowsep>
+3 <colsep>ATTN&lowbar;STATIC <colsep>all spawnstaticsound messages get this   
+attenuation<rowsep>
+</tabular></quote>
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>for (i=0 ; i<3 ; i++) origin[i] = ReadCoord;
+soundnum = ReadByte; 
+vol = (float) ReadByte / 255.0; 
+attenuation = (float) ReadByte / 64.0;</verb></tscreen>
+  
+</descrip>
+
+<sect1>intermission<p><descrip><tag><tt>ID</tt></tag><tt>0x1E</tt>
+
+<tag>purpose</tag>
+Displays the level end screen. Depending on the <tt>multi</tt> command in
+the serverinfo message this is either the single player summary screen or the
+multi player ranking screen.
+
+<tag>parse routine</tag>
+none
+
+</descrip>
+
+<sect1>finale<p><descrip><tag><tt>ID</tt></tag><tt>0x1F</tt>
+
+<tag>purpose</tag>
+Displays the episode end screen and some text.
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>char* text;</tt></tag>is the episode end text.
+</descrip>
+<tag>parse routine</tag>
+<tscreen><verb>text = ReadString;</verb></tscreen>
+
+</descrip>
+
+<sect1>cdtrack<p><descrip><tag><tt>ID</tt></tag><tt>0x20</tt>
+
+<tag>purpose</tag>
+This message selects the audio CD track numbers.
+
+<tag>variables</tag>
+<descrip>
+
+<tag><tt>long fromtrack;</tt></tag> is the start track.
+
+<tag><tt>long totrack;</tt></tag> is the last track. Both values are
+equal at the start of a game but become 2 and 3 at the end of an episode.
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>fromtrack = ReadByte;
+totrack = ReadByte;</verb></tscreen>
+
+</descrip>
+
+<sect1>sellscreen<p><descrip><tag><tt>ID</tt></tag><tt>0x21</tt>
+
+<tag>purpose</tag>
+Displays the help and sell screen.
+
+<tag>parse routine</tag>
+none
+
+</descrip>
+
+<sect1>updateentity<p><descrip><tag><tt>ID</tt></tag><tt>&gt;=0x80</tt>
+
+<tag>purpose</tag>
+This is the general entity update message. For every entity 
+(potentially) in sight the server sends such a message. The message contains
+only the values, which changed since the creation (or spawning) of the 
+entity (with spawnstatic, spawnbaseline).
+
+<tag>variables</tag>
+<descrip>
+<tag><tt>long mask;</tt></tag> is a bit mask to reduce the amount of data to be
+sent. Only the changed parts get their bit and their values.
+
+<tag><tt>long entity;</tt></tag> is the entity number. 
+
+<tag><tt>long modelindex;</tt></tag> is the model number in the model-table. 
+
+<tag><tt>long frame;</tt></tag> is the frame number of the model.
+
+<tag><tt>long colormap;</tt></tag> is the colormap number to display the model.
+
+<tag><tt>long skin;</tt></tag> is the skin number of the model. This is used 
+for things with different skins (like players or armors). 
+
+<tag><tt>long attack_state;</tt></tag> shows how the entity attacks. 
+I'm not really sure about the explanation because I found only the
+values 0 and 2 in DEM files.
+The possible values are:
+<quote><tabular ca="lll">
+value <colsep>QuakeC <colsep>purpose<rowsep>
+0 <colsep>none <colsep>don't attack<rowsep>
+1 <colsep>AS&lowbar;STRAIGHT <colsep>straight shot<rowsep>
+2 <colsep>AS&lowbar;SLIDING <colsep>move to a side<rowsep>
+3 <colsep>AS&lowbar;MELEE <colsep> single combat (dog, ogre)<rowsep>
+4 <colsep>AS&lowbar;MISSILE <colsep> shooting attack<rowsep>
+</tabular></quote>
+
+<tag><tt>vec3_t origin;</tt></tag> is the origin of the entity.
+
+<tag><tt>vec3_t angles;</tt></tag> is the orientation of the entity.
+
+<tag><tt>long new;</tt></tag> is 1 if the entity gets some really new values
+(modelindex etc.)
+
+</descrip>
+
+<tag>parse routine</tag>
+<tscreen><verb>mask = ID & 0x07F;
+if (mask & 0x0001) mask |= (ReadByte) << 8;
+entity = mask & 0x4000 ? ReadShort : ReadByte;
+modelindex = mask & 0x0400 ? ReadByte : default_modelindex;
+frame = mask & 0x0040 ? ReadByte : default_frame; 
+colormap = mask & 0x0800 ? ReadByte : default_colormap; 
+skin = mask & 0x1000 ? ReadByte : default_skin;
+attack_state = mask & 0x2000 ? ReadByte : default_attack_state;
+origin[0] = mask & 0x0002 ? ReadCoord : default_origin[0];
+angles[0] = mask & 0x0100 ? ReadAngle : default_angles[0];
+origin[1] = mask & 0x0004 ? ReadCoord : default_origin[1];
+angles[1] = mask & 0x0010 ? ReadAngle : default_angles[1];
+origin[2] = mask & 0x0008 ? ReadCoord : default_origin[2];
+angles[2] = mask & 0x0200 ? ReadAngle : default_angles[2];
+new = mask & 0x0020 ? 1 : 0;</verb></tscreen>
+
+</descrip>
+
+<sect>Version History and Acknowledgements
+<p>
+<descrip>
+<tag>0.0.1, 7 July, 1996</tag>
+<itemize>
+<item>First version (working paper) completed.
+<item>Many thanks to Steffen Winterfeldt
+(<tt><htmlurl url="mailto:wfeldt@tph100.physik.uni-leipzig.de"
+name="wfeldt@tph100.physik.uni-leipzig.de"></tt>)
+for his unbelievable reverse engineering work. He worked out all the structure 
+information.
+</itemize>
+
+<tag>0.0.2, 8 July, 1996</tag>
+<itemize>
+<item>Stupid spawnstatic error corrected.
+</itemize>
+
+<tag>0.0.3, 9 July, 1996</tag>
+<itemize>
+<item>I finally understood the multi player recordings.
+<item>More info on sound, particle, spawnstaticsound.
+</itemize>
+
+<tag>0.0.4, 14 July, 1996</tag>
+<itemize>
+<item>Many new values decoded.
+<item>Tables for weapons and status line.
+<item>More general remarks.
+</itemize>
+
+<tag>0.0.5, 16 July, 1996</tag>
+<itemize>
+<item>Many new values decoded.
+<item>Variables entry in the message description.
+<item>Life-cycles.
+</itemize>
+
+<tag>1.0.0, 28 July, 1996</tag>
+<itemize>
+<item>QuakeC is published. Many things get their right names now.
+<item>Life-cycles for multi player.
+<item>This version is the first reliable one.
+</itemize>
+
+<tag>1.0.1, 29 July, 1996</tag>
+<itemize>
+<item>Almost all identifier names match now the QuakeC names.
+<item>Grammer check by SW.
+</itemize>
+
+<tag>1.0.2, 30 July, 1996</tag>
+<itemize>
+<item>Serious semantic mistake corrected (spawn/update).
+<item>Some minor layout improvements.
+</itemize>
+
+</descrip>
+
+<sect>About this document
+<p>
+I wrote this document in 
+<htmlurl 
+url="ftp://sunsite.unc.edu/pub/Linux/utils/text/linuxdoc-sgml-1.5.tar.gz"
+name="Linuxdoc-SGML 1.5">
+with a small 
+<htmlurl 
+url="http://www.physik.uni-leipzig.de/&tilde;girlich/archive/html-tables.patch"
+ name="patch"> for the HTML table support. 
+You can get the
+<htmlurl url="http://www.physik.uni-leipzig.de/&tilde;girlich/games/doc/dem-1.0.2.sgml"
+name="SGML source">
+at my games page
+<tt><url url="http://www.physik.uni-leipzig.de/&tilde;girlich/games/"></tt>.
+From the source you can create a
+<htmlurl url="http://www.physik.uni-leipzig.de/&tilde;girlich/games/doc/dem-1.0.2.doc"
+name="plain"> or
+<htmlurl url="http://www.physik.uni-leipzig.de/&tilde;girlich/games/doc/dem-1.0.2.txt"
+name="formatted"> ASCII text,
+<htmlurl url="http://www.physik.uni-leipzig.de/&tilde;girlich/games/doc/dem-1.0.2.ps.gz"
+name="PostScript">
+and
+<htmlurl url="http://www.physik.uni-leipzig.de/~girlich/games/doc/dem-1.0.2.html"
+name="HTML"> versions of this document.
+</article>
+

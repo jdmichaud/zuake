@@ -1,0 +1,186 @@
+<!SGML "ISO 8879:1986">
+<!DOCTYPE HTML SYSTEM "html.dtd">
+<HTML>
+<HEAD>
+<TITLE>The unofficial DEM format description: File structure</TITLE>
+</HEAD>
+<BODY>
+<A HREF="dem-1.0.2-4.html">Previous</A>
+<A HREF="dem-1.0.2-6.html">Next</A>
+<A HREF="dem-1.0.2.html#toc5">Table of Contents</A>
+<HR>
+<H2><A NAME="s5">5. File structure</A></H2>
+
+<P>To describe the file structure, which is very complicated, I use 
+C like program fragments and <CODE>struct</CODE> definitions. This 
+simplifies my task a lot. </P>
+<P>I invented all used names (messages, variables etc.) for myself, took them 
+from the Quake binary, QuakeEd or from the QuakeC examples. </P>
+<P>All DEM files start with an ASCII string of the cd track which was given
+to the <CODE>record</CODE> command. The string is terminated by a new line
+character (<CODE>0x0A</CODE>). If you didn't give a cd track number the string
+is ``-1''. This means almost all DEM files start with ``-1\n''. 
+It seems that this header was included at the very end of the developement.
+It doesn't fit to the rest at all.</P>
+<P>All the rest of the DEM file consists of ``blocks'' of ``messages''.</P>
+<H2><A NAME="ss5.1">5.1 Block of Messages</A></H2>
+
+<P>At first some coordinate <CODE>typedef</CODE>'s:
+<BLOCKQUOTE><CODE>
+<PRE>
+typedef float vec_t;
+
+typedef vec_t[3] vec3_t;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>This is the block structure:
+<BLOCKQUOTE><CODE>
+<PRE>
+typedef struct {
+                 long            blocksize;
+                 vec3_t          angles;
+                 char[blocksize] messages;
+               } block_t;
+</PRE>
+</CODE></BLOCKQUOTE>
+
+A block of messages starts with a size. Then follow 3 angles which describe
+the camera viewing direction. All the rest of a block are bytes which 
+form one or more messages.</P>
+<P>I believe that one block is one network packet from the server to the client.</P>
+
+
+<H2><A NAME="ss5.2">5.2 Message</A></H2>
+
+<P>This is the message structure:
+<BLOCKQUOTE><CODE>
+<PRE>
+typedef struct {
+                 unsigned char ID;
+                 char[???]     messagecontent;
+               } message_t;
+</PRE>
+</CODE></BLOCKQUOTE>
+
+The length of a message depends on its type (or <CODE>ID</CODE>).</P>
+
+
+<H2><A NAME="ss5.3">5.3 Auxilliary routines</A></H2>
+
+<P>Here comes the definition of some small auxilliary routines to 
+simplify
+the main message description. <CODE>get_next_unsigned_char</CODE>,
+<CODE>get_next_signed_char</CODE>, <CODE>get_next_short</CODE> and
+<CODE>get_next_long</CODE> are basic functions and they do exactly what they are 
+called. Please note: <CODE>byte</CODE>, <CODE>char</CODE> or <CODE>short</CODE> will be 
+converted to <CODE>long</CODE>.
+Second note: all multi-byte structures in the DEM file are Intel ordered.</P>
+<P>In the following I often use a count variable 
+<BLOCKQUOTE><CODE>
+<PRE>
+int i;
+</PRE>
+</CODE></BLOCKQUOTE>
+
+without declaration. I hope this does not confuse you. </P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long ReadByte
+{
+  return (long) get_next_unsigned_char;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long ReadChar
+{
+  return (long) get_next_signed_char;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long ReadShort
+{
+  return (long) get_next_short;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long ReadLong
+{
+  return get_next_long;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>Note: A signed angle in a single byte. There are only 256 possible 
+direction to look into.</P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+vec_t ReadAngle
+{
+  return (vec_t) ReadChar / 256.0 * 360.0;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+vec_t ReadCoord
+{
+  return (vec_t) ReadShort * 0.125;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>The string reading stops at '\0' or after 0x7FF bytes. The internal
+buffer has only 0x800 bytes available.</P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+char* ReadString
+{
+  char* string_pointer;
+  char string_buffer[0x800];
+
+  string_pointer=string_buffer;
+  for (i=0 ; i&lt;0x7FF ; i++, string_pointer++) {
+    if (! (*string_pointer = ReadChar) ) break;
+  }
+  *string_pointer = '\0';
+  return strdup(string_buffer);
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+<P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long ReadEntity
+{
+  return ReadShort;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+
+<HR>
+<A HREF="dem-1.0.2-4.html">Previous</A>
+<A HREF="dem-1.0.2-6.html">Next</A>
+<A HREF="dem-1.0.2.html#toc5">Table of Contents</A>
+</BODY>
+</HTML>

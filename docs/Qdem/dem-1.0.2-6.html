@@ -1,0 +1,1489 @@
+<!SGML "ISO 8879:1986">
+<!DOCTYPE HTML SYSTEM "html.dtd">
+<HTML>
+<HEAD>
+<TITLE>The unofficial DEM format description: List of all message types</TITLE>
+</HEAD>
+<BODY>
+<A HREF="dem-1.0.2-5.html">Previous</A>
+<A HREF="dem-1.0.2-7.html">Next</A>
+<A HREF="dem-1.0.2.html#toc6">Table of Contents</A>
+<HR>
+<H2><A NAME="s6">6. List of all message types</A></H2>
+
+<P>The easiest way to explain a message is to give a short
+C like program fragment to parse such a message. Each message can be
+described by its <CODE>ID</CODE> or its name. </P>
+
+
+<H2><A NAME="ss6.1">6.1 bad</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x00</CODE></P>
+
+<DT><B>purpose</B><DD><P>Something is bad. This message should never appear.</P>
+
+<DT><B>parse routine</B><DD><P>none</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.2">6.2 nop</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x01</CODE></P>
+
+<DT><B>purpose</B><DD><P>No operation.</P>
+
+<DT><B>parse routine</B><DD><P>none</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.3">6.3 disconnect</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x02</CODE></P>
+
+<DT><B>purpose</B><DD><P>Disconnect from the server. Stops the game.</P>
+
+<DT><B>parse routine</B><DD><P>none</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.4">6.4 updatestat</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x03</CODE></P>
+
+<DT><B>purpose</B><DD><P>Updates directly any values in the player state.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long index;</CODE></B><DD><P>is the index in the <CODE>playerstate</CODE>
+array.
+Possible indices are:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+index <TD>variable
+<TR><TD>
+0 <TD><CODE>health</CODE>
+<TR><TD>
+1 <TD>??? (not used)
+<TR><TD>
+2 <TD><CODE>weaponmodel</CODE>
+<TR><TD>
+3 <TD><CODE>currentammo</CODE>
+<TR><TD>
+4 <TD><CODE>armorvalue</CODE>
+<TR><TD>
+5 <TD><CODE>weaponframe</CODE>
+<TR><TD>
+6 <TD><CODE>ammo_shells</CODE>
+<TR><TD>
+7 <TD><CODE>ammo_nails</CODE>
+<TR><TD>
+8 <TD><CODE>ammo_rockets</CODE>
+<TR><TD>
+9 <TD><CODE>ammo_cells</CODE>
+<TR><TD>
+10 <TD><CODE>weapon</CODE>
+<TR><TD>
+11 <TD><CODE>total_secrets</CODE>
+<TR><TD>
+12 <TD><CODE>total_monsters</CODE>
+<TR><TD>
+13 <TD><CODE>found_secrets</CODE>
+<TR><TD>
+14 <TD><CODE>found_monsters</CODE>
+<TR><TD>
+15 <TD>???
+<TR><TD>
+. <TD>
+<TR><TD>
+. <TD>
+<TR><TD>
+. <TD>
+<TR><TD>
+31 <TD>???
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+
+Normal DEM files use index 11 to 14 only. </P>
+
+<DT><B><CODE>long value;</CODE></B><DD><P>is the new value.</P>
+
+<DT><B><CODE>long playerstate[32];</CODE></B><DD><P>is the array to describe the
+player state. Many other messages change (indirectly) some values in it. </P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+index = ReadByte;
+if (index &gt; 0x1F) {
+  error(&quot;svc_updatestat: %i is invalid&quot;, index);
+}
+value = ReadLong;
+playerstate[index] = value;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.5">6.5 version</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x04</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message defines the version of the server. I never found such a message in
+a DEM file. It may be absorbed by the <CODE>serverinfo</CODE> message.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long serverprotocol;</CODE></B><DD><P>is the version number of the
+server. It should be <CODE>0x0F</CODE>.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+serverprotocol = ReadLong;
+if (serverprotocol != 0x0F) {
+  error(&quot;CL_ParseServerMessage: Server is protocol %i instead of %i\n&quot;, 
+                                                 serverprotocol, 0x0F);
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.6">6.6 setview</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x05</CODE></P>
+
+<DT><B>purpose</B><DD><P>Sets the camera position to the origin of this entity.  </P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long entity;</CODE></B><DD><P>is the entity with the camera.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+entity = ReadShort;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.7">6.7 sound</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x06</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message starts the play of a sound at a specific point.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long mask;</CODE></B><DD><P>is a bitmask to reduce the amount of data.</P>
+
+<DT><B><CODE>float vol;</CODE></B><DD><P>is the volume of the sound (0.0 off, 1.0 max)</P>
+
+<DT><B><CODE>float attenuation;</CODE></B><DD><P>is the attenuation of the sound.
+Possible values (for all kind of sounds) are:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+value <TD>QuakeC <TD>purpose
+<TR><TD>
+0 <TD>ATTN_NONE <TD>i. e. player's death sound doesn't get an attenuation
+<TR><TD>
+1 <TD>ATTN_NORM <TD>the normal attenuation
+<TR><TD>
+2 <TD>ATTN_IDLE <TD>idle monsters get this attenuation
+<TR><TD>
+3 <TD>ATTN_STATIC <TD>spawnstaticsound messages get this attenuation
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+<DT><B><CODE>long channel;</CODE></B><DD><P>is the sound channel. There are 8 possible
+sound channels in Quake but the game uses 5 only. 
+Possible values are:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+value <TD>QuakeC <TD>purpose
+<TR><TD>
+0 <TD>CHAN_AUTO <TD>big powerups
+<TR><TD>
+1 <TD>CHAN_WEAPON <TD>weapon use sounds
+<TR><TD>
+2 <TD>CHAN_VOICE <TD>pain calls
+<TR><TD>
+3 <TD>CHAN_ITEM <TD>item get sounds
+<TR><TD>
+4 <TD>CHAN_BODY <TD>jump and fall sounds
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+<DT><B><CODE>long entity;</CODE></B><DD><P>is the entity which caused the sound.</P>
+
+<DT><B><CODE>long soundnum;</CODE></B><DD><P>is the sound number in the sound-table.</P>
+
+<DT><B><CODE>ve3_t origin;</CODE></B><DD><P>is the origin of the sound.</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long entity_channel; // combined variable
+
+mask = ReadByte;
+vol = mask & 0x01 ? (float) ReadByte / 255.0 : 1.0;
+attenuation = mask & 0x02 ? (float) ReadByte / 64.0 : 1.0;
+entity_channel = ReadShort;
+channel = entity_channel & 0x07;
+entity = (entity_channel &gt;&gt; 3) & 0x1FFF;
+soundnum = ReadByte;
+for (i=0 ; i&lt;3 ; i++) origin[i] = ReadCoord;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.8">6.8 time</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x07</CODE></P>
+
+<DT><B>purpose</B><DD><P>This is the time stamp of a block of messages. A time message should appear 
+in every block.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>float time;</CODE></B><DD><P>is the time in seconds from the beginning of 
+the current level (not of the recording).</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+time = ReadFloat;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.9">6.9 print</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x08</CODE></P>
+
+<DT><B>purpose</B><DD><P>The client prints the text in the top left corner of the screen.
+The text appears on the console as well.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>char* text;</CODE></B><DD><P>is the text to be displayed.
+The text contains something like ``You get 5 shells''. 
+There are special non-printable characters in the text: ``\n'' means new
+line and ``\002'' changes the color of the following text.
+The value 2 may be a color number but I'm not sure about this.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+text = ReadString;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.10">6.10 stufftext</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x09</CODE></P>
+
+<DT><B>purpose</B><DD><P>The client transfers the text to the console and runs it.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>char* text;</CODE></B><DD><P>is the command, which the client has to 
+execute. These are commands like ``bf\n'' to make a flash after you take
+something.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+text = ReadString;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.11">6.11 setangle</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x0A</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message set the camera orientation.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>vec3_t angles;</CODE></B><DD><P>is the new camera orientation.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+for (i=0 ; i&lt;3 ; i++) angles[i] = ReadAngle;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.12">6.12 serverinfo</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x0B</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message is usually one of the first messages after a level start. 
+It loads model and sound files.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long serverversion;</CODE></B><DD><P>is the version of the server.
+It should be the same as the version of the client. Up to now this version was
+always <CODE>0x0F</CODE>.</P>
+
+<DT><B><CODE>long maxclients;</CODE></B><DD><P>is the maximum number of clients in this
+recording. It is 1 in single player recordings or the number after the
+<CODE>-listen</CODE> command line parameter.</P>
+
+<DT><B><CODE>long multi;</CODE></B><DD><P>is 0 in single player recordings and 1 in
+multi player recordings. It actually toggles the ranking screen at the end of
+a level.</P>
+
+<DT><B><CODE>char* mapname;</CODE></B><DD><P>is the name of the level.</P>
+
+<DT><B><CODE>char* precache_models[256];</CODE></B><DD><P>is the model-table. It will be
+filled
+up with model names. Many other messages contain an index in this array.
+The first used index is 1.</P>
+
+<DT><B><CODE>long nummodels;</CODE></B><DD><P>is the number of models in the 
+model-table.</P>
+
+<DT><B><CODE>char* precache_sounds[256];</CODE></B><DD><P>is the sound-table. It will be
+filled
+up with sound names. Many other messages contain an index in this array.
+The first used index is 1.</P>
+
+<DT><B><CODE>long numsounds;</CODE></B><DD><P>is the number of sounds in the 
+sound-table.</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+serverversion = ReadLong;
+if (serverversion != 0x0F) { 
+  error(&quot;Server returned version %i, not %i&quot;, serverversion, 0x0F);
+}
+maxclients = ReadByte;
+multi = ReadByte;
+mapname = ReadString;
+nummodels = 0;
+do {
+  if (++nummodels &gt; 255) error(&quot;Server sent too many model_precache&quot;);
+  precache_models[nummodels] = ReadString;
+} while (*precache_models[nummodels]);
+numsounds = 0;
+do {
+  if (++numsounds &gt; 255) error(&quot;Server sent too many sound_precache&quot;);
+  precache_sounds[numsounds] = ReadString;
+} while (*precache_sounds[numsounds]);
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.13">6.13 lightstyle</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x0C</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message defines a light style.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long style;</CODE></B><DD><P>is the light style number.</P>
+<DT><B><CODE>char* string;</CODE></B><DD><P>is a string of letters ``a'' .. ``z'',
+where ``a'' means black and ``z'' white.
+All known effects from nervous flashing: ``az'' to slow dimming: 
+``zyxwvu ... edcba'' can so be described.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+style = ReadByte;
+string = ReadString;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.14">6.14 updatename</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x0D</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message sets the player name.</P>
+
+<DT><B><CODE>variables</CODE></B><DD><P>
+<DL>
+<DT><B><CODE>long player;</CODE></B><DD><P>is the internal player number (client 1
+is player number 0).</P>
+<DT><B><CODE>char* netname;</CODE></B><DD><P>is the new player name.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+player = ReadByte;
+netname = ReadString;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.15">6.15 updatefrags</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x0E</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message updates the frag count of a specific player.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long player;</CODE></B><DD><P>is the internal player number (client 1 
+is player number 0).</P>
+<DT><B><CODE>long frags;</CODE></B><DD><P>is the new frag count for this player.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+player = ReadByte;
+frags = ReadShort;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.16">6.16 clientdata</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x0F</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message updates the status line and the camera coordinates.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long mask;</CODE></B><DD><P>is a bitmask to show which values are coming.</P>
+
+<DT><B><CODE>float view_ofs_z;</CODE></B><DD><P>is an additional view offset because
+the camera is at the origin of the entitiy and not at the eyes 
+(is -8 if the player is death). </P>
+
+<DT><B><CODE>float ang_ofs_1;</CODE></B><DD><P>is an additional offset of the first
+angle.</P>
+
+<DT><B><CODE>vec3_t angles;</CODE></B><DD><P>indicates the camera direction change.</P>
+
+<DT><B><CODE>vec3_t vel;</CODE></B><DD><P>indicates the camera velocity.</P>
+
+<DT><B><CODE>long items;</CODE></B><DD><P>contains a bit mask for the inventory:
+<TABLE>
+<TR><TD>
+bit <TD>value <TD>QuakeC <TD>purpose
+<TR><TD>
+0 <TD><CODE>0x00000001</CODE> <TD>IT_SHOTGUN <TD>Shotgun (should be always 1)
+<TR><TD>
+1 <TD><CODE>0x00000002</CODE> <TD>IT_SUPER_SHOTGUN <TD>Double-barrelled Shotgun
+<TR><TD>
+2 <TD><CODE>0x00000004</CODE> <TD>IT_NAILGUN <TD>Nailgun
+<TR><TD>
+3 <TD><CODE>0x00000008</CODE> <TD>IT_SUPER_NAILGUN <TD>Supernailgun
+<TR><TD>
+4 <TD><CODE>0x00000010</CODE> <TD>IT_GRENADE_LAUNCHER <TD>Grenade Launcher
+<TR><TD>
+5 <TD><CODE>0x00000020</CODE> <TD>IT_ROCKET_LAUNCHER <TD>Rocket Launcher
+<TR><TD>
+6 <TD><CODE>0x00000040</CODE> <TD>IT_LIGHTNING <TD>Thunderbolt
+<TR><TD>
+7 <TD><CODE>0x00000080</CODE> <TD>IT_EXTRA_WEAPON <TD>extra weapon (there is no extra weapon)
+<TR><TD>
+8 <TD><CODE>0x00000100</CODE> <TD>IT_SHELLS <TD>Shells are active
+<TR><TD>
+9 <TD><CODE>0x00000200</CODE> <TD>IT_NAILS <TD>Flechettes are active
+<TR><TD>
+10 <TD><CODE>0x00000400</CODE> <TD>IT_ROCKETS <TD>Grenades are active
+<TR><TD>
+11 <TD><CODE>0x00000800</CODE> <TD>IT_CELLS <TD>Cells are active
+<TR><TD>
+12 <TD><CODE>0x00001000</CODE> <TD>IT_AXE <TD>Axe (should be always 1)
+<TR><TD>
+13 <TD><CODE>0x00002000</CODE> <TD>IT_ARMOR1 <TD>green Armor
+<TR><TD>
+14 <TD><CODE>0x00004000</CODE> <TD>IT_ARMOR2 <TD>yellow Armor
+<TR><TD>
+15 <TD><CODE>0x00008000</CODE> <TD>IT_ARMOR3 <TD>red Armor
+<TR><TD>
+16 <TD><CODE>0x00010000</CODE> <TD>IT_SUPERHEALTH <TD>Megahealth
+<TR><TD>
+17 <TD><CODE>0x00020000</CODE> <TD>IT_KEY1 <TD>silver (keycard or runekey or key)
+<TR><TD>
+18 <TD><CODE>0x00040000</CODE> <TD>IT_KEY2 <TD>gold (keycard or runekey or key)
+<TR><TD>
+19 <TD><CODE>0x00080000</CODE> <TD>IT_INVISIBILITY <TD>Ring of Shadows
+<TR><TD>
+20 <TD><CODE>0x00100000</CODE> <TD>IT_INVULNERABILITY <TD>Pentagram of Protection
+<TR><TD>
+21 <TD><CODE>0x00200000</CODE> <TD>IT_SUIT <TD>Biosuit
+<TR><TD>
+22 <TD><CODE>0x00400000</CODE> <TD>IT_QUAD <TD>Quad Damage
+<TR><TD>
+23 <TD><CODE>0x00800000</CODE> <TD>unknown <TD>unknown (is 0)
+<TR><TD>
+24 <TD><CODE>0x01000000</CODE> <TD>unknown <TD>unknown (is 0)
+<TR><TD>
+25 <TD><CODE>0x02000000</CODE> <TD>unknown <TD>unknown (is 0)
+<TR><TD>
+26 <TD><CODE>0x04000000</CODE> <TD>unknown <TD>unknown (is 0)
+<TR><TD>
+27 <TD><CODE>0x08000000</CODE> <TD>unknown <TD>unknown (is 0)
+<TR><TD>
+28 <TD><CODE>0x10000000</CODE> <TD>unknown <TD>Rune 1
+<TR><TD>
+29 <TD><CODE>0x20000000</CODE> <TD>unknown <TD>Rune 2
+<TR><TD>
+30 <TD><CODE>0x40000000</CODE> <TD>unknwon <TD>Rune 3
+<TR><TD>
+31 <TD><CODE>0x80000000</CODE> <TD>unknown <TD>Rune 4
+<TR><TD>
+</TABLE>
+
+You can find the default value for <CODE>items</CODE> in the parse routine: 
+<CODE>0x4001</CODE>. It looks like a programmer's mistake because this means
+Shotgun any yellow Armor. It should be <CODE>0x1001</CODE>: Shotgun and Axe.</P>
+
+<DT><B><CODE>long weaponframe;</CODE></B><DD><P>is the frame of the weapon model.</P>
+
+<DT><B><CODE>long armorvalue;</CODE></B><DD><P>is the current armor.</P>
+
+<DT><B><CODE>long weaponmodel;</CODE></B><DD><P>is the model number of the weapon in 
+the model-table.</P>
+
+<DT><B><CODE>long health;</CODE></B><DD><P>is the current health.</P>
+
+<DT><B><CODE>long currentammo;</CODE></B><DD><P>is the current number of the current 
+ammunition.</P>
+
+<DT><B><CODE>long ammo_shells;</CODE></B><DD><P>is the current number of shells.</P>
+
+<DT><B><CODE>long ammo_nails;</CODE></B><DD><P>is the current number of nails.</P>
+
+<DT><B><CODE>long ammo_rockets;</CODE></B><DD><P>is the current number of rockets.</P>
+
+<DT><B><CODE>long ammo_cells;</CODE></B><DD><P>is the current number of cells.</P>
+
+<DT><B><CODE>long weapon;</CODE></B><DD><P>contains a bit mask for the current weapon:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+bit <TD>value <TD>QuakeC <TD>weapon
+<TR><TD>
+? <TD><CODE>0x00</CODE> <TD>not available <TD>Axe
+<TR><TD>
+0 <TD><CODE>0x01</CODE> <TD>IT_SHOTGUN <TD>Shotgun
+<TR><TD>
+1 <TD><CODE>0x02</CODE> <TD>IT_SUPER_SHOTGUN <TD>Double-barrelled Shotgun
+<TR><TD>
+2 <TD><CODE>0x04</CODE> <TD>IT_NAILGUN <TD>Nailgun
+<TR><TD>
+3 <TD><CODE>0x08</CODE> <TD>IT_SUPER_NAILGUN<TD>Supernailgun
+<TR><TD>
+4 <TD><CODE>0x10</CODE> <TD>IT_GRENADE_LAUNCHER<TD>Grenade Launcher
+<TR><TD>
+5 <TD><CODE>0x20</CODE> <TD>IT_ROCKET_LAUNCHER<TD>Rocket Launcher
+<TR><TD>
+6 <TD><CODE>0x40</CODE> <TD>IT_LIGHTNING<TD>Thunderbolt
+<TR><TD>
+7 <TD><CODE>0x80</CODE> <TD>IT_EXTRA_WEAPON<TD>extra weapon (there is no extra weapon)
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long uk_bit_b10, uk_bit_b11; // unknown (unused ??)
+
+mask = ReadShort;
+view_ofs_z = mask & 0x0001 ? (float) ReadChar : 22.0;
+ang_ofs_1 = mask & 0x0002 ? (float) ReadChar : 0.0; 
+angles[0] = mask & 0x0004 ? (vec_t) ReadChar : 0.0; 
+vel[0] = mask & 0x0020 ? (vec_t) ReadChar : 0.0;
+angles[1] = mask & 0x0008 ? (vec_t) ReadChar : 0.0; 
+vel[1] = mask & 0x0040 ? (vec_t) ReadChar : 0.0;
+angles[2] = mask & 0x0010 ? (vec_t) ReadChar : 0.0; 
+vel[2] = mask & 0x0080 ? (vec_t) ReadChar : 0.0;
+items = mask & 0x0200 ? ReadLong : 0x4001;
+uk_bit_b10 = mask & 0x0400 ? 1 : 0; // bit 10 
+uk_bit_b11 = mask & 0x0800 ? 1 : 0; // bit 11 
+weaponframe = mask & 0x1000 ? ReadByte : 0;
+armorvalue = mask & 0x2000 ? ReadByte : 0;
+weaponmodel = mask & 0x4000 ? ReadByte : 0; 
+health = ReadShort;  
+currentammo = ReadByte;
+ammo_shells = ReadByte;
+ammo_nails = ReadByte;
+ammo_rockets = ReadByte;
+ammo_cells = ReadByte;
+weapon = ReadByte;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.17">6.17 stopsound</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x10</CODE></P>
+
+<DT><B>purpose</B><DD><P>Stops a sound. I never found such a message in a DEM file.</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+long uk_short;  // unknown (an index??)
+
+uk_short = ReadShort;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.18">6.18 updatecolors</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x11</CODE></P>
+
+<DT><B>purpose</B><DD><P>Updates the colors of the specified player.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long player;</CODE></B><DD><P>is the internal player number
+(client 1 is player 0).</P>
+<DT><B><CODE>long colors;</CODE></B><DD><P>is the combined color of this player.</P>
+<DT><B><CODE>long shirtcolor;</CODE></B><DD><P>is the color of the shirt
+(0 &lt;= <CODE>shirtcolor</CODE> &lt;= 3).</P>
+<DT><B><CODE>long pantscolor;</CODE></B><DD><P>is the color of the pants
+(0 &lt;= <CODE>pantscolor</CODE> &lt;= 3).</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+player = ReadByte;
+colors = ReadByte;
+shirtcolor = (colors&gt;&gt;4) & 0x0F;
+pantscolor = colors & 0x0F;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.19">6.19 particle</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x12</CODE></P>
+
+<DT><B>purpose</B><DD><P>This starts particles flying around. This happens, if a barrel explodes or
+blood particles fly after being hit by an axe, shells or nails.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>vec3_t origin;</CODE></B><DD><P>is the origin of the particles.</P>
+
+<DT><B><CODE>vec3_t vel;</CODE></B><DD><P>is the velocity of the particles.</P>
+
+<DT><B><CODE>long color;</CODE></B><DD><P>is the color of the particles (blood is 73).</P>
+
+<DT><B><CODE>long count;</CODE></B><DD><P>is the number of the particles</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+for (i=0 ; i&lt;3 ; i++) origin[i] = ReadCoord;
+for (i=0 ; i&lt;3 ; i++) vel[i] = (vec_t) ReadChar * 0.0625;
+color = ReadByte;
+count = ReadByte;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.20">6.20 damage</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x13</CODE></P>
+
+<DT><B>purpose</B><DD><P>Tells how severe was a hit and from which points it came.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long save;</CODE></B><DD><P>will be subtracted from the current armor.</P>
+<DT><B><CODE>long take;</CODE></B><DD><P>will be subtracted from the current
+health.</P>
+<DT><B><CODE>vec3_t origin;</CODE></B><DD><P>is the origin of the
+hit. It points to the weapon of a monster or player (not the origin of the
+monster entity) or it is (0,0,0) if the damage was caused by drowning or
+burning.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+save = ReadByte;
+take = ReadByte;
+for (i=0 ; i&lt;3 ; i++) origin[i] = ReadCoord;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="spawnstatic"></A> <A NAME="ss6.21">6.21 spawnstatic</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x14</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message creates a static entity and sets the internal default values.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long StaticEntityCount;</CODE></B><DD><P>is the number of already started
+static entities. The maximum number is 127.</P>
+
+<DT><B><CODE>long default_modelindex;</CODE></B><DD><P>is the model number in the 
+model-table.</P>
+
+<DT><B><CODE>long default_frame;</CODE></B><DD><P>is the frame number of the model.</P>
+
+<DT><B><CODE>long default_colormap;</CODE></B><DD><P>is the colormap number to display 
+the model.</P>
+
+<DT><B><CODE>long default_skin;</CODE></B><DD><P>is the skin number of the model. 
+This is used for things with different skins (like players or armors). </P>
+
+<DT><B><CODE>vec3_t default_origin;</CODE></B><DD><P>is the origin of the entity.</P>
+
+<DT><B><CODE>vec3_t default_angles;</CODE></B><DD><P>is the orientation of the entity.</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+if (StaticEntityCount &gt; 127) error(&quot;Too many static entities&quot;);
+StaticEntityCount++;
+default_modelindex = ReadByte;
+default_frame = ReadByte;
+default_colormap = ReadByte;
+default_skin = ReadByte;
+for (i=0 ; i&lt;3 ; i++) {
+  default_origin[i] = ReadCoord;
+  default_angles[i] = ReadAngle;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.22">6.22 spawnbinary</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x15</CODE></P>
+
+<DT><B>purpose</B><DD><P>This is OBSOLETE. It should never occur in DEM files.</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+error (&quot;CL_ParseServerMessage: Illegible server message\n&quot;);
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="spawnbaseline"></A> <A NAME="ss6.23">6.23 spawnbaseline</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x16</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message creates a dynamic entity and sets the internal default values.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long entity;</CODE></B><DD><P>is the number of the entity.</P>
+
+<DT><B><CODE>long default_modelindex;</CODE></B><DD><P>is the model number in the 
+model-table.</P>
+
+<DT><B><CODE>long default_frame;</CODE></B><DD><P>is the frame number of the model.</P>
+
+<DT><B><CODE>long default_colormap;</CODE></B><DD><P>is the colormap number to display 
+the model.</P>
+
+<DT><B><CODE>long default_skin;</CODE></B><DD><P>is the skin number of the model. This is
+used for things with different skins (like players or armors).</P>
+
+<DT><B><CODE>vec3_t default_origin;</CODE></B><DD><P>is the origin of the entity.</P>
+
+<DT><B><CODE>vec3_t default_angles;</CODE></B><DD><P>is the orientation of the entity.</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+entity = ReadShort;
+if (entity &gt; 449) error(&quot;CL_EntityNum: %i is an invalid number&quot;, entity);
+default_modelindex = ReadByte;
+default_frame = ReadByte;
+default_colormap = ReadByte;
+default_skin = ReadByte;
+for (i=0 ; i&lt;3 ; i++) {
+  default_origin[i] = ReadCoord;
+  default_angles[i] = ReadAngle;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="temp_entity"></A> <A NAME="ss6.24">6.24 temp_entity</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x17</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message creates a temporary entity.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long entitytype;</CODE></B><DD><P>is the type of the temporary entity.
+There are two kinds of temporary entities:
+<DL>
+<DT><B>point entity</B><DD><P>is a small point like entity.
+<TABLE>
+<TR><TD>
+value <TD>QuakeC <TD>purpose
+<TR><TD>
+0 <TD>TE_SPIKE <TD>unknown
+<TR><TD>
+1 <TD>TE_SUPERSPIKE <TD>superspike hits (spike traps)
+<TR><TD>
+2 <TD>TE_GUNSHOT <TD>hit on the wall (Axe, Shotgun)
+<TR><TD>
+3 <TD>TE_EXPLOSION <TD>grenade/missile explosion
+<TR><TD>
+4 <TD>TE_TAREXPLOSION <TD>explosion of a tarbaby
+<TR><TD>
+7 <TD>TE_WIZSPIKE <TD>wizard's hit
+<TR><TD>
+8 <TD>TE_KNIGHTSPIKE <TD>hell knight's shot hit
+<TR><TD>
+10 <TD>TE_LAVASPLASH <TD>Chthon awakes and falls dead
+<TR><TD>
+11 <TD>TE_TELEPORT <TD>teleport end
+<TR><TD>
+</TABLE>
+</P>
+<DT><B>large entity</B><DD><P>is a 2 dimensional entity.
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+value <TD>QuakeC <TD>purpose
+<TR><TD>
+5 <TD>TE_LIGHTNING1 <TD>flash of the Shambler
+<TR><TD>
+6 <TD>TE_LIGHTNING2 <TD>flash of the Thunderbolt
+<TR><TD>
+9 <TD>TE_LIGHTNING3 <TD>flash in e1m7 to kill Chthon
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+</DL>
+</P>
+
+<DT><B><CODE>long entity;</CODE></B><DD><P>is the entity which created the temporary
+entity.</P>
+
+<DT><B><CODE>vec3_t origin;</CODE></B><DD><P>is the origin of the entity.</P>
+
+<DT><B><CODE>vec3_t trace_endpos;</CODE></B><DD><P>is the destination of the large
+temporary entity.</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+entitytype = ReadByte;
+if (entitytype &gt; 11) 
+  error(&quot;CL_ParserTEnt: bad type&quot;);
+switch (entitytype) {
+  case 0,1,2,3,4,7,8,10,11:
+         for (i=0 ; i&lt;3 ; i++) org[i] = ReadCoord;
+  break;
+  case 5,6,9:
+         entity = ReadEntity;
+         for (i=0 ; i&lt;3 ; i++) origin[i] = ReadCoord;
+         for (i=0 ; i&lt;3 ; i++) trace_endpos[i] = ReadCoord;
+  break;
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.25">6.25 setpause</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x18</CODE></P>
+
+<DT><B>purpose</B><DD><P>Set the pause state. The time stands still but all entities get their update
+messages.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long pausestate;</CODE></B><DD><P>is 1 to start the pause and 0 to stop it.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+pausestate = ReadByte;
+if (pausestate) {
+  // pause is on
+}
+else {
+  // pause is off
+}
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.26">6.26 signonum</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x19</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message selects the client state.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B>long signon;</B><DD><P>is the client state. 
+The possible values are:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+value <TD>purpose
+<TR><TD>
+1 <TD>after model/sound precache, start spawning entities (``prespawn'')
+<TR><TD>
+2 <TD>start initializing light effects
+<TR><TD>
+3 <TD>start 3D rendering
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+signon = ReadByte;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.27">6.27 centerprint</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x1A</CODE></P>
+
+<DT><B>purpose</B><DD><P>Prints the specified text at the center of the screen.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>char* text;</CODE></B><DD><P>is the text to be displayed.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+text = ReadString;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.28">6.28 killedmoster</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x1B</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message indicates the death of a monster.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long killed_monsters;</CODE></B><DD><P>is the number of killed monsters. 
+It may be displayed with the console command <CODE>showscores</CODE>.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+killed_mosters++;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.29">6.29 foundsecret</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x1C</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message receives a client, if the player enters a secret area.
+It comes usually with a <CODE>print</CODE> message.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long found_secrets;</CODE></B><DD><P>is the number of found secrets. It may
+be displayed with the console command <CODE>showscores</CODE>.</P>
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+found_secrets++;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.30">6.30 spawnstaticsound</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x1D</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message starts a static (ambient) sound not connected to an entity but to
+a position.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>vec3_t origin;</CODE></B><DD><P>is the origin of 
+the sound.</P>
+
+<DT><B><CODE>long soundnum;</CODE></B><DD><P>is the sound number in the sound-table.</P>
+
+<DT><B><CODE>float vol;</CODE></B><DD><P>is the volume (0.0 off, 1.0 max)</P>
+
+<DT><B><CODE>float attenuation;</CODE></B><DD><P>is the attenuation of the sound. 
+Possible values (for all kind of sounds) are:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+value <TD>QuakeC <TD>purpose
+<TR><TD>
+0 <TD>ATTN_NONE <TD>i. e. player's death sound doesn't get an attenuation
+<TR><TD>
+1 <TD>ATTN_NORM <TD>the normal attenuation
+<TR><TD>
+2 <TD>ATTN_IDLE <TD>idle monsters get this attenuation
+<TR><TD>
+3 <TD>ATTN_STATIC <TD>all spawnstaticsound messages get thisattenuation
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+for (i=0 ; i&lt;3 ; i++) origin[i] = ReadCoord;
+soundnum = ReadByte; 
+vol = (float) ReadByte / 255.0; 
+attenuation = (float) ReadByte / 64.0;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.31">6.31 intermission</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x1E</CODE></P>
+
+<DT><B>purpose</B><DD><P>Displays the level end screen. Depending on the <CODE>multi</CODE> command in
+the serverinfo message this is either the single player summary screen or the
+multi player ranking screen.</P>
+
+<DT><B>parse routine</B><DD><P>none</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.32">6.32 finale</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x1F</CODE></P>
+
+<DT><B>purpose</B><DD><P>Displays the episode end screen and some text.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>char* text;</CODE></B><DD><P>is the episode end text.</P>
+</DL>
+</P>
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+text = ReadString;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.33">6.33 cdtrack</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x20</CODE></P>
+
+<DT><B>purpose</B><DD><P>This message selects the audio CD track numbers.</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+
+<DT><B><CODE>long fromtrack;</CODE></B><DD><P>is the start track.</P>
+
+<DT><B><CODE>long totrack;</CODE></B><DD><P>is the last track. Both values are
+equal at the start of a game but become 2 and 3 at the end of an episode.</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+fromtrack = ReadByte;
+totrack = ReadByte;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.34">6.34 sellscreen</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>0x21</CODE></P>
+
+<DT><B>purpose</B><DD><P>Displays the help and sell screen.</P>
+
+<DT><B>parse routine</B><DD><P>none</P>
+
+</DL>
+</P>
+
+
+<H2><A NAME="ss6.35">6.35 updateentity</A></H2>
+
+<P>
+<DL>
+<DT><B><CODE>ID</CODE></B><DD><P><CODE>&gt;=0x80</CODE></P>
+
+<DT><B>purpose</B><DD><P>This is the general entity update message. For every entity 
+(potentially) in sight the server sends such a message. The message contains
+only the values, which changed since the creation (or spawning) of the 
+entity (with spawnstatic, spawnbaseline).</P>
+
+<DT><B>variables</B><DD><P>
+<DL>
+<DT><B><CODE>long mask;</CODE></B><DD><P>is a bit mask to reduce the amount of data to be
+sent. Only the changed parts get their bit and their values.</P>
+
+<DT><B><CODE>long entity;</CODE></B><DD><P>is the entity number. </P>
+
+<DT><B><CODE>long modelindex;</CODE></B><DD><P>is the model number in the model-table. </P>
+
+<DT><B><CODE>long frame;</CODE></B><DD><P>is the frame number of the model.</P>
+
+<DT><B><CODE>long colormap;</CODE></B><DD><P>is the colormap number to display the model.</P>
+
+<DT><B><CODE>long skin;</CODE></B><DD><P>is the skin number of the model. This is used 
+for things with different skins (like players or armors). </P>
+
+<DT><B><CODE>long attack_state;</CODE></B><DD><P>shows how the entity attacks. 
+I'm not really sure about the explanation because I found only the
+values 0 and 2 in DEM files.
+The possible values are:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+value <TD>QuakeC <TD>purpose
+<TR><TD>
+0 <TD>none <TD>don't attack
+<TR><TD>
+1 <TD>AS_STRAIGHT <TD>straight shot
+<TR><TD>
+2 <TD>AS_SLIDING <TD>move to a side
+<TR><TD>
+3 <TD>AS_MELEE <TD> single combat (dog, ogre)
+<TR><TD>
+4 <TD>AS_MISSILE <TD> shooting attack
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+<DT><B><CODE>vec3_t origin;</CODE></B><DD><P>is the origin of the entity.</P>
+
+<DT><B><CODE>vec3_t angles;</CODE></B><DD><P>is the orientation of the entity.</P>
+
+<DT><B><CODE>long new;</CODE></B><DD><P>is 1 if the entity gets some really new values
+(modelindex etc.)</P>
+
+</DL>
+</P>
+
+<DT><B>parse routine</B><DD><P>
+<BLOCKQUOTE><CODE>
+<PRE>
+mask = ID & 0x07F;
+if (mask & 0x0001) mask |= (ReadByte) &lt;&lt; 8;
+entity = mask & 0x4000 ? ReadShort : ReadByte;
+modelindex = mask & 0x0400 ? ReadByte : default_modelindex;
+frame = mask & 0x0040 ? ReadByte : default_frame; 
+colormap = mask & 0x0800 ? ReadByte : default_colormap; 
+skin = mask & 0x1000 ? ReadByte : default_skin;
+attack_state = mask & 0x2000 ? ReadByte : default_attack_state;
+origin[0] = mask & 0x0002 ? ReadCoord : default_origin[0];
+angles[0] = mask & 0x0100 ? ReadAngle : default_angles[0];
+origin[1] = mask & 0x0004 ? ReadCoord : default_origin[1];
+angles[1] = mask & 0x0010 ? ReadAngle : default_angles[1];
+origin[2] = mask & 0x0008 ? ReadCoord : default_origin[2];
+angles[2] = mask & 0x0200 ? ReadAngle : default_angles[2];
+new = mask & 0x0020 ? 1 : 0;
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+</DL>
+</P>
+
+
+<HR>
+<A HREF="dem-1.0.2-5.html">Previous</A>
+<A HREF="dem-1.0.2-7.html">Next</A>
+<A HREF="dem-1.0.2.html#toc6">Table of Contents</A>
+</BODY>
+</HTML>

@@ -1,0 +1,109 @@
+<!SGML "ISO 8879:1986">
+<!DOCTYPE HTML SYSTEM "html.dtd">
+
+
+
+
+<HTML>
+<HEAD>
+<TITLE>The unofficial DEM format description</TITLE>
+</HEAD>
+<BODY>
+Previous
+<A HREF="dem-1.0.2-1.html">Next</A>
+Table of Contents
+<HR>
+<H1>The unofficial DEM format description</H1>
+
+<H2>Uwe Girlich, <CODE>
+<A HREF="mailto:girlich@aix520.informatik.uni-leipzig.de">girlich@aix520.informatik.uni-leipzig.de</A></CODE></H2>v1.0.2, 7/30/96
+<P><HR><EM>This document describes the DEM file format. This file format is the result of
+``recording'' a game in Quake.
+This documentation covers the versions 0.91 through 1.01.</EM><HR></P>
+<P>
+<H2><A NAME="toc1">1.</A> <A HREF="dem-1.0.2-1.html">Introduction</A></H2>
+<UL>
+<LI><A HREF="dem-1.0.2-1.html#ss1.1">1.1 Recording and Playback</A>
+<LI><A HREF="dem-1.0.2-1.html#ss1.2">1.2 Versions</A>
+</UL>
+
+<P>
+<H2><A NAME="toc2">2.</A> <A HREF="dem-1.0.2-2.html">Basics on the used client/server architecture</A></H2>
+
+<P>
+<H2><A NAME="toc3">3.</A> <A HREF="dem-1.0.2-3.html">Some remarks on the used demo format</A></H2>
+<UL>
+<LI><A HREF="dem-1.0.2-3.html#ss3.1">3.1 Advertising</A>
+<LI><A HREF="dem-1.0.2-3.html#ss3.2">3.2 Difference to DOOM</A>
+<LI><A HREF="dem-1.0.2-3.html#ss3.3">3.3 Opportunities of the DEM format</A>
+<LI><A HREF="dem-1.0.2-3.html#ss3.4">3.4 Problems of the DEM format</A>
+</UL>
+
+<P>
+<H2><A NAME="toc4">4.</A> <A HREF="dem-1.0.2-4.html">Some general remarks on the recording structure</A></H2>
+<UL>
+<LI><A HREF="dem-1.0.2-4.html#ss4.1">4.1 Entity</A>
+<LI><A HREF="dem-1.0.2-4.html#ss4.2">4.2 Life-cycles</A>
+</UL>
+
+<P>
+<H2><A NAME="toc5">5.</A> <A HREF="dem-1.0.2-5.html">File structure</A></H2>
+<UL>
+<LI><A HREF="dem-1.0.2-5.html#ss5.1">5.1 Block of Messages</A>
+<LI><A HREF="dem-1.0.2-5.html#ss5.2">5.2 Message</A>
+<LI><A HREF="dem-1.0.2-5.html#ss5.3">5.3 Auxilliary routines</A>
+</UL>
+
+<P>
+<H2><A NAME="toc6">6.</A> <A HREF="dem-1.0.2-6.html">List of all message types</A></H2>
+<UL>
+<LI><A HREF="dem-1.0.2-6.html#ss6.1">6.1 bad</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.2">6.2 nop</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.3">6.3 disconnect</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.4">6.4 updatestat</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.5">6.5 version</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.6">6.6 setview</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.7">6.7 sound</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.8">6.8 time</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.9">6.9 print</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.10">6.10 stufftext</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.11">6.11 setangle</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.12">6.12 serverinfo</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.13">6.13 lightstyle</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.14">6.14 updatename</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.15">6.15 updatefrags</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.16">6.16 clientdata</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.17">6.17 stopsound</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.18">6.18 updatecolors</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.19">6.19 particle</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.20">6.20 damage</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.21">6.21 spawnstatic</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.22">6.22 spawnbinary</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.23">6.23 spawnbaseline</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.24">6.24 temp_entity</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.25">6.25 setpause</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.26">6.26 signonum</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.27">6.27 centerprint</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.28">6.28 killedmoster</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.29">6.29 foundsecret</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.30">6.30 spawnstaticsound</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.31">6.31 intermission</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.32">6.32 finale</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.33">6.33 cdtrack</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.34">6.34 sellscreen</A>
+<LI><A HREF="dem-1.0.2-6.html#ss6.35">6.35 updateentity</A>
+</UL>
+
+<P>
+<H2><A NAME="toc7">7.</A> <A HREF="dem-1.0.2-7.html">Version History and Acknowledgements</A></H2>
+
+<P>
+<H2><A NAME="toc8">8.</A> <A HREF="dem-1.0.2-8.html">About this document</A></H2>
+
+
+<HR>
+Previous
+<A HREF="dem-1.0.2-1.html">Next</A>
+Table of Contents
+</BODY>
+</HTML>

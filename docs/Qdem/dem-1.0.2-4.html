@@ -1,0 +1,166 @@
+<!SGML "ISO 8879:1986">
+<!DOCTYPE HTML SYSTEM "html.dtd">
+<HTML>
+<HEAD>
+<TITLE>The unofficial DEM format description: Some general remarks on the recording structure</TITLE>
+</HEAD>
+<BODY>
+<A HREF="dem-1.0.2-3.html">Previous</A>
+<A HREF="dem-1.0.2-5.html">Next</A>
+<A HREF="dem-1.0.2.html#toc4">Table of Contents</A>
+<HR>
+<H2><A NAME="s4">4. Some general remarks on the recording structure</A></H2>
+
+
+<H2><A NAME="ss4.1">4.1 Entity</A></H2>
+
+<P>An entity is an object. This may be the whole level (described by a BSP file),
+the player (described by a MDL file), an explosion (described by a SPR file) or
+the like.</P>
+<P>There are different kinds of entities.</P>
+
+<H3>Static Entity</H3>
+
+<P>A static entity doesn't interact with the rest of the game. These are flames
+(<CODE>progs/flame.mdl</CODE>) and the like. It will be
+created by the spawnstatic message. 
+It will never be necessary to reference such an entity. They don't get an
+entity number. The maximum number of static entities is 127.</P>
+
+<H3>Dynamic Entity</H3>
+
+<P>A dynamic entity is anything which changes its behaviour or its appearance.
+These are ammunition boxes, spinning armors, player models and the like.
+A dynamic entity will be created by the spawnbaseline
+message. The maximum number of dynamic entities is 449.</P>
+
+<H3>Temporary Entity</H3>
+
+<P>A temporary entity will be created by the temp_entity
+message.
+A temporary entity is a (as the name indicates) short time entity.</P>
+<P>Quake uses these entities for hits on the wall (point-like entities) or for the
+Thunderbolt flash (line-like entities).</P>
+<P>For more information on temporary entities look in section 
+<A HREF="dem-1.0.2-6.html#temp_entity">temp_entity</A>.</P>
+
+
+<H2><A NAME="ss4.2">4.2 Life-cycles</A></H2>
+
+<P>The Quake objects pass different life phases. The following information is not
+DEM specific but it may be of general interest to understand the 
+co-operation of all the messages.</P>
+
+<H3>Armor</H3>
+
+<P>
+<UL>
+<LI>To enable the client to display an armor the serverinfo message asks 
+for the 
+``progs/armor.mdl'' model file and the ``items/armor1.wav'' sound file.</LI>
+<LI>The armor starts its life with a spawnbaseline message during the
+initialize phase. The armor is now a dynamic entity and spins around. </LI>
+<LI>The corresponding updateentity message appears only, if the camera is 
+near enough to see the armor.</LI>
+<LI>The player gets it in the play. This results in the sound message
+``items/armor1.wav''
+and a print message ``you got armor'' and the stufftext message 
+``bf\n'' to make a short flash. </LI>
+<LI>The updateentity message for the armor
+doesn't appear ever again: the player got it.</LI>
+<LI>From this moment the 
+corresponding bit in the <CODE>items</CODE> variable in the clientdata message
+will be 1 and the <CODE>armorvalue</CODE> variable get its maximum (100/150/200).
+From the <CODE>items</CODE> bit follows the color of the picture to be drawn in 
+the lower left corner of the status line.</LI>
+<LI>Now the player may be hit by a grenade. The total damage value
+(damage=take+save) will be 
+split in take (<CODE>health-=take</CODE>) and save (<CODE>armorvalue-=save</CODE>). 
+The save amount depends on the armor type (none/green/yellow/red):
+<CODE>save=0.0/0.3/0.6/0.8*damage</CODE>. 
+The damage message in the DEM file tells the 
+reduction of the current armor. With the old clientdata value and the 
+reduction it is easy to recompute the new clientdata <CODE>armor</CODE> value.
+Any difference betrayes the cheat code player. </LI>
+<LI>After some severe hits the 
+<CODE>armorvalue</CODE> variable is 0 and the <CODE>items</CODE> bit falls back to 0 as
+well. There is no armor anymore.</LI>
+</UL>
+</P>
+
+<H3>(Multi) Player</H3>
+
+<P>The following describes the deathmatch DEM messages of the two players Alice
+and Bob. Alice records the game from her <CODE>-listen 3</CODE> server. </P>
+<P>
+<UL>
+<LI>The serverinfo message contains the ``maxclients 3'' command to show
+how many clients are (at most) in this recording.</LI>
+<LI>During the 1st initialization phase there are 3 spawnbaseline messages to 
+create the player models. In the 2nd initialization phase player 0 gets its name
+(Alice), color and frag count (0) . The other 2 players get an empty name
+string. In the 3rd phase Alice gets again her name and color. 
+All these phases are controlled by signonnum messages.</LI>
+<LI>The game starts. Alice (entity 1) is alone in the game and looks around.</LI>
+<LI>Bob connects to Alice's server and it appears entity 2 (Bob's player
+model) a transport end temporary entity and a print message 
+(``Bob entered the game'') to inform everyone. Then the player 1 (Bob) gets his
+updatename and updatecolors message. </LI>
+<LI>Alice doesn't hesitate and runs for him and shoots him with the Shotgun. 
+During every shot the clientdata message reduces the ammo count,
+the angles[0] command shows the wobble of Alice's screen and 
+the weaponframe
+command selects the corresponding weapon frames. There is a sound message
+to start the <CODE>weapons/guncock.wav</CODE> file. Entity 1 gets
+its attack_state command. Alice hits Bob and so appear many particle messages
+(blood). 
+Every Shotgun shot contains 6 parts. This means the shot can create 6 particles
+(full hit) and 0 temporary entities (type 2: wall hits) or 0 particles and 6
+temporary entities or anything in between. If there was at least one particle
+Bob creates a sound message to start <CODE>player/pain?.wav</CODE>.</LI>
+<LI>Alice kills Bob. This creates the sound message to start 
+<CODE>player/death1.wav</CODE>. Then comes the updatefrags message to give Alice
+1 frag and a print message to inform everyone ``Bob chewed on Alice's 
+boomstick''. A new entity will be created on the fly with an updateentity
+message to display Bob's backpack. </LI>
+<LI>Bob is dead, his entity 2 model remains in the death frame.</LI>
+<LI>After some
+seconds he starts again by pressing <CODE>SPACE</CODE>. He reappears in a 
+totally different part of the level. The dead body transforms from entity 2
+to entity 4 (maxclients+1) and a temporary entity (transport end) informs
+about his return. He is out of sight from the point of Alice's view. This 
+means there is no entity 2 updateentity message.</LI>
+<LI>Bob runs to Alice's room. He goes through a slipgate and appears with
+4 temporary entities (type 11: transport end) and the entity 2 in her room.</LI>
+<LI>Bob shoots and kills Alice. The scenario is the same as above. Only
+the damage messages appear now too, because Alice was hit.</LI>
+<LI>Bob uses the say console command (<CODE>say this sucks</CODE>) and in the 
+DEM file appears a print message ``Bob: this sucks''. </LI>
+<LI>Bob disconnects from Alice's server. This results in a print message
+``Bob left the game with 1 frags'' and updatename and updatecolor messages
+to remove client 2 (or player 1). It is a bit strange but there are 2 
+updatefrags messages: player 1 gets first 0 frags (this I understand) and then
+again 1 frag (this I don't understand at all).</LI>
+<LI>Entity 2 represents now the dead player 1.</LI>
+<LI>Alice spins around (it is possible even if you are dead) and the two
+dead bodies from Bob are totally white
+because they represent player 1 and he got (as he left) the updatecolor message
+with the standard colors 0 and 0. She is alone, restarts again her play,
+goes to the level end slipgate and get the ranking screen (intermission
+message) with only one player
+(Alice). Then she stops the recording. The DEM file ends with a disconnect 
+message.</LI>
+</UL>
+</P>
+
+<H3>Medikits, Chthon, etc.</H3>
+
+<P>will be included later (anyone volunteer?)</P>
+
+
+<HR>
+<A HREF="dem-1.0.2-3.html">Previous</A>
+<A HREF="dem-1.0.2-5.html">Next</A>
+<A HREF="dem-1.0.2.html#toc4">Table of Contents</A>
+</BODY>
+</HTML>

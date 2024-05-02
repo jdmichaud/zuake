@@ -1,0 +1,70 @@
+<!SGML "ISO 8879:1986">
+<!DOCTYPE HTML SYSTEM "html.dtd">
+<HTML>
+<HEAD>
+<TITLE>The unofficial DEM format description: Introduction</TITLE>
+</HEAD>
+<BODY>
+Previous
+<A HREF="dem-1.0.2-2.html">Next</A>
+<A HREF="dem-1.0.2.html#toc1">Table of Contents</A>
+<HR>
+<H2><A NAME="s1">1. Introduction</A></H2>
+
+
+<H2><A NAME="ss1.1">1.1 Recording and Playback</A></H2>
+
+<P>Recording a game in Quake is as easy as playing it: you need some console
+commands to do it well. </P>
+<P>To create a single player DEM file start the game as usual and use the console
+command <CODE>record name level [cdtrack]</CODE>. This starts <CODE>level</CODE> with
+the currently selected skill and writes a record in <CODE>name.dem</CODE>.
+The recording will be written during all the play and this record file may 
+grow unpredictable. Please make sure that you have some MB free disk space.
+To stop this recording use <CODE>stop</CODE> or even quit the whole game 
+(<CODE>quit</CODE>). To play it back, use the commands <CODE>playdemo name</CODE>
+or <CODE>timedemo name</CODE>. </P>
+<P>To create a multi player DEM file start a ``listen'' server 
+(recording from a dedicated server doesn't work) and use again the 
+<CODE>record</CODE> command. This starts the selected level and the player at the
+server is alone in this level. Now all the other clients can connect to the 
+server as usual and play what they like (deathmatch or team). The recording 
+lasts until the player at the listen server uses the <CODE>disconnect</CODE>, 
+<CODE>stop</CODE> or <CODE>quit</CODE> command. The recording is from the point of
+view of the player at the listen server (client 1). The playback 
+works as in the single player case.</P>
+
+
+<H2><A NAME="ss1.2">1.2 Versions</A></H2>
+
+<P>The documentation covers the following versions of Quake:
+<BLOCKQUOTE>
+<TABLE>
+<TR><TD>
+MS-DOS Shareware <TD>0.91
+<TR><TD>
+MS-DOS Shareware <TD>0.92
+<TR><TD>
+MS-DOS Shareware <TD>1.00
+<TR><TD>
+MS-DOS Shareware <TD>1.01
+<TR><TD>
+LINUX <TD>0.92
+<TR><TD>
+</TABLE>
+</BLOCKQUOTE>
+
+I could not find any important structural differences between these 5 versions.
+I actually write and check my documentation with LINUX and verify from time to
+time the MS-DOS recordings. </P>
+<P>This documentation isn't complete yet. Much decoding work remains to do
+(when I find the registered version in the mail) but I think this version 
+it will help a lot in the understanding of the DEM format.</P>
+
+
+<HR>
+Previous
+<A HREF="dem-1.0.2-2.html">Next</A>
+<A HREF="dem-1.0.2.html#toc1">Table of Contents</A>
+</BODY>
+</HTML>

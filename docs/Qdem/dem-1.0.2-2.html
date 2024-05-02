@@ -1,0 +1,42 @@
+<!SGML "ISO 8879:1986">
+<!DOCTYPE HTML SYSTEM "html.dtd">
+<HTML>
+<HEAD>
+<TITLE>The unofficial DEM format description: Basics on the used client/server architecture</TITLE>
+</HEAD>
+<BODY>
+<A HREF="dem-1.0.2-1.html">Previous</A>
+<A HREF="dem-1.0.2-3.html">Next</A>
+<A HREF="dem-1.0.2.html#toc2">Table of Contents</A>
+<HR>
+<H2><A NAME="s2">2. Basics on the used client/server architecture</A></H2>
+
+<P>Unlike DOOM and similar games Quake uses a ``server'' process (or even
+computer) which ``does'' all the game play. The ``clients'' (at least one)
+send to the server all input events (keys, mouse etc.) and receive
+all necessary information to draw the current picture. This prevents Quake
+from inconsistencies and the network load increases linear with the clients
+and not quadratic.</P>
+<P>The communication between server and clients is an asynchronous one. 
+If you don't
+press any key, your computer won't send any packets to the server. But you 
+receive from time to time (the network is unpredictable) a packet to describe
+the state of your client. It is obvious, that these packets must contain some
+time stamp information, the positions of all monsters in sight and some
+player state information like the current weapon, ammo etc.</P>
+<P> 
+And exactly this is the
+DEM file format: the recording of all packets from the server to that client,
+who recorded the game (the first client). I call these packets 
+``blocks of messages'' and the
+single information (time, position, ammo etc.) ``message''.</P>
+<P>Whether the (listen) server process itself or the
+client process does the actual recording (file write access) isn't known but
+it is irrelevant for the understanding of the recording process.</P>
+
+<HR>
+<A HREF="dem-1.0.2-1.html">Previous</A>
+<A HREF="dem-1.0.2-3.html">Next</A>
+<A HREF="dem-1.0.2.html#toc2">Table of Contents</A>
+</BODY>
+</HTML>
