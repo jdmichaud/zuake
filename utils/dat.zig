@@ -110,7 +110,7 @@ pub const OpCode = enum(u16) {
   BITOR = 0x41,
 };
 
-const Statement = extern struct {
+pub const Statement = extern struct {
   opcode: OpCode,
   arg1: u16,
   arg2: u16,
@@ -229,7 +229,7 @@ pub const Dat = struct {
       .strings = dat[header.stringsOffset..header.stringsOffset + header.stringsSize],
       .stringTable = stringTable,
       .globals = @as(*const []const u32,
-        @ptrCast(&dat[header.globalsOffset..header.globalsOffset + header.globalsNum * @sizeOf(u32)])).*,
+        @ptrCast(&dat[header.globalsOffset..header.globalsOffset + header.globalsNum])).*,
     };
   }
 
@@ -347,14 +347,14 @@ pub fn main() !void {
   }
 
   try stdout.print("\nFunctions table contains {} entries:\n", .{ dat.functions.len - 1 });
-  try stdout.print("  {s: >5}{s: >8}{s: >11}{s: >20} {s: >20}{s: >13}{s: >13}{s: >13}\n", .{
+  try stdout.print("  {s: >5}{s: >8}{s: >11}{s: >30} {s: >15}{s: >13}{s: >13}{s: >13}\n", .{
     "Num", "Builtin", "Entrypoint", "Name", "File", "First local", "Nb. locals", "Nb. args",
   });
   for (dat.functions[1..], 1..) |fun, index| {
-    try stdout.print("  {: >5}{s: >8}{: >11}{s: >20} {s: >20}{: >13}{: >13}{: >13}\n", .{
+    try stdout.print("  {: >5}{s: >8}{: >11}{s: >30} {s: >15}{: >13}{: >13}{: >13}\n", .{
       index,
       if (fun.entryPoint < 0) "yes" else "no",
-      @abs(fun.entryPoint),
+      fun.entryPoint,
       dat.getString(fun.nameOffset),
       dat.getString(fun.fileOffset),
       fun.firstLocal,
@@ -363,19 +363,19 @@ pub fn main() !void {
     });
   }
 
-  try stdout.print("\nString table contains {} entries:\n", .{ dat.stringTable.len - 1 });
+  try stdout.print("\nStrings table contains {} entries:\n", .{ dat.stringTable.len - 1 });
   try stdout.print("  {s: >5}{s: >10} {s: <50}\n", .{ "Num", "Num", "Value" });
   for (dat.stringTable[1..], 1..) |s, index| {
     try stdout.print("  {: >5}{: >10} {s: <50}\n", .{ index, s.len, s });
   }
 
-  try stdout.print("\nStatement table contains {} entries:\n", .{ dat.statements.len - 1 });
-  try stdout.print("  {s: >5}{s: >10} {s: <8}{s: <8}{s: <8}\n", .{ "Num", "Opcode", "Arg1", "Arg2", "Arg3" });
+  try stdout.print("\nStatements table contains {} entries:\n", .{ dat.statements.len - 1 });
+  try stdout.print("  {s: >5}{s: >15} {s: <8}{s: <8}{s: <8}\n", .{ "Num", "Opcode", "Arg1", "Arg2", "Arg3" });
   for (dat.statements[1..], 1..) |s, index| {
-    try stdout.print("  {: >5}{s: >10} {: <8}{: <8}{: <8}\n", .{ index, @tagName(s.opcode), s.arg1, s.arg2, s.arg3 });
+    try stdout.print("  {: >5}{s: >15} {: <8}{: <8}{: <8}\n", .{ index, @tagName(s.opcode), s.arg1, s.arg2, s.arg3 });
   }
 
-  try stdout.print("\nGlobal table contains {} entries:\n", .{ dat.globals.len - 1 });
+  try stdout.print("\nGlobals table contains {} entries:\n", .{ dat.globals.len - 1 });
   try stdout.print("  {s: >5}{s: >10}\n", .{ "Num", "Value" });
   for (1..dat.globals.len) |index| {
     try stdout.print("  {: >5}{x: >10}\n", .{ index, dat.globals[index] });
