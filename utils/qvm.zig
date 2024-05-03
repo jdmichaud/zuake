@@ -2,6 +2,7 @@
 //
 // reference:
 //  https://github.com/graphitemaster/gmqcc
+//  http://ouns.nexuizninjaz.com/dev_quakec.html
 //
 // cmd: clear && zig build-exe -freference-trace qvm.zig && ./qvm ../data/pak/progs.dat
 
@@ -11,6 +12,10 @@ const datModule = @import("dat.zig");
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
+
+fn bitCast(comptime T: type, v: anytype) T {
+  return @bitCast(v);
+}
 
 // Special entry in the global index
 // There are spaced by 3 bytes so that they can take vectors.
@@ -57,7 +62,7 @@ pub const RuntimeError = struct {
 };
 
 const Builtins = struct {
-  pub fn call(vm: *VM, index: u32) !void {
+  pub fn call(vm: *VM, index: u32, argc: u32) !void {
     switch (index) {
       1 => @panic("makevectors is not yet implemented"),
       2 => @panic("setorigin is not yet implemented"),
@@ -85,9 +90,15 @@ const Builtins = struct {
       25 => @panic("dprint is not yet implemented"),
       26 => @panic("ftos is not yet implemented"),
       27 => {
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)    ] = 1;
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue) + 1] = 2;
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue) + 2] = 3;
+        const v_x = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)    ]);
+        const v_y = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1) + 1]);
+        const v_z = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1) + 2]);
+        _ = try std.fmt.bufPrintZ(vm.mem[vm.stringsOffset * @sizeOf(u32)..], "'{} {} {}'", .{ v_x, v_y, v_z });
+        // We need to return an address that is beyond the read only string
+        // address of the DAT file so that we can distinguish were the string
+        // is stored.
+        const virtualAddr = vm.stringsOffset + vm.dat.header.stringsOffset + vm.dat.header.stringsSize;
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(virtualAddr);
       },
       28 => @panic("coredump is not yet implemented"),
       29 => @panic("traceon is not yet implemented"),
@@ -134,9 +145,9 @@ const Builtins = struct {
         var head: usize = 0;
         inline for (ParameterList) |parameter| {
           const strOffset = vm.mem32[@intFromEnum(parameter)];
-          if (strOffset != 0) {
+          if ((@intFromEnum(parameter) - @intFromEnum(CallRegisters.Parameter1)) / 3 < argc) {
             const written = try std.fmt.bufPrint(str[head..], "{s}", .{
-              vm.dat.getString(strOffset),
+              vm.getString(strOffset),
             });
             head += written.len;
             if (head > 1024) {
@@ -156,12 +167,26 @@ const VM = struct {
 
   dat: datModule.Dat,
 
+  // Dat Memory layout        VM memory layout
+  // 0-------------------
+  //  strings
+  //  -------------------     0------------------
+  //  globals (ro)             globals (rw)
+  //  -------------------      ------------------ <- stringOffset
+  //  statements               dynamic strings
+  //  -------------------      ------------------ <- stackLimit
+  //  fields                   stack
+  //  -------------------      ------------------
+  //  functions
+  //  -------------------
   mem: []u8,
   // Same as mem but in 32bits for convenience
   mem32: []u32,
   // Stack Pointer
   // Index in mem32 (so incremented by 1)
   sp: usize,
+  // Dynamic string data
+  stringsOffset: usize,
   // Upper limit of the stack. If we reach it, it means the stack is overflown.
   stacklimit: usize,
   // Program Counter
@@ -169,8 +194,11 @@ const VM = struct {
   pc: usize,
 
   pub fn init(allocator: std.mem.Allocator, dat: datModule.Dat) !Self {
+    // Check that the global are less than the allocated memory and reserving
+    // 1K for dynamic string data and 1K for the stack.
+    std.debug.assert(dat.globals.len * @sizeOf(u32) < 1024 * 1024 * 1 - 1024 - 1024);
     // We allocate a fixed amount of memory (TODO: make it configurable)
-    // We assum that the globals fit within the memory with a little room for the stack
+    // We assume that the globals fit within the memory with a little room for the stack
     const mem32 = try allocator.alloc(u32, 256 * 1024 * 1); // 1 Mb for now
     // Keep a []32 slice around for convenience
     const mem: []u8 = std.mem.sliceAsBytes(mem32);
@@ -200,7 +228,8 @@ const VM = struct {
       .mem = mem,
       .mem32 = mem32,
       .sp = sp,
-      .stacklimit = dat.globals.len * @sizeOf(u32),
+      .stringsOffset = dat.globals.len,
+      .stacklimit = dat.globals.len * @sizeOf(u32) + 1024,
       .pc = @intCast(mainFn.?.entryPoint),
     };
   }
@@ -208,6 +237,14 @@ const VM = struct {
   pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     allocator.free(self.mem);
     self.* = undefined;
+  }
+
+  pub fn getString(self: Self, offset: u32) [:0]const u8 {
+    const datStringBoundary = self.dat.header.stringsOffset + self.dat.header.stringsSize;
+    if (offset < datStringBoundary) {
+      return self.dat.getString(offset);
+    }
+    return std.mem.span(@as([*:0]const u8, @ptrCast(self.mem32[offset - datStringBoundary..])));
   }
 
   fn call(self: *Self, statement: datModule.Statement, argc: u8, err: *RuntimeError) !void {
@@ -230,7 +267,7 @@ const VM = struct {
         self.pc = @intCast(fun.entryPoint);
       } else {
         // No saving the PC because the builtin will not change it
-        try Builtins.call(self, @abs(fun.entryPoint));
+        try Builtins.call(self, @abs(fun.entryPoint), argc);
         self.pc += 1;
       }
     } else {
@@ -247,7 +284,7 @@ const VM = struct {
       datModule.OpCode.GOTO => @panic("GOTO unimplemented"),
       datModule.OpCode.ADDRESS => @panic("ADDRESS unimplemented"),
       datModule.OpCode.RETURN => {
-        std.log.debug("RETURN pc 0x{x} sp 0x{x}", .{ self.pc, self.sp });
+        std.log.debug("RETURN {} pc 0x{x} sp 0x{x}", .{ statement.arg1, self.pc, self.sp });
         const src = statement.arg1;
         if (src != 0) {
           const returnAddress = @intFromEnum(CallRegisters.ReturnValue);
@@ -279,9 +316,9 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst    ] = self.mem32[lhs    ] - self.mem32[rhs    ];
-        self.mem32[dst + 1] = self.mem32[lhs + 1] - self.mem32[rhs + 1];
-        self.mem32[dst + 2] = self.mem32[lhs + 2] - self.mem32[rhs + 2];
+        self.mem32[dst    ] = bitCast(u32, bitCast(f32, self.mem32[lhs    ]) - bitCast(f32, self.mem32[rhs    ]));
+        self.mem32[dst + 1] = bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) - bitCast(f32, self.mem32[rhs + 1]));
+        self.mem32[dst + 2] = bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) - bitCast(f32, self.mem32[rhs + 2]));
         self.pc += 1;
         return false;
       },
