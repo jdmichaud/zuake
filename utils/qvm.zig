@@ -81,24 +81,35 @@ const Builtins = struct {
       16 => @panic("traceline is not yet implemented"),
       17 => @panic("checkclient is not yet implemented"),
       18 => @panic("find is not yet implemented"),
-      19 => @panic("precache_sound is not yet implemented"),
+      19 => { // precache_sound
+        // Only try to open a file and prints with a warning if it fails
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        const data = misc.load(path) catch |err| {
+          try stderr.print("warning: {}, trying to open open {s}\n", .{ err, path });
+          return;
+        };
+        vm.registerFile(path, data);
+      },
       20 => @panic("precache_model is not yet implemented"),
       21 => @panic("stuffcmd is not yet implemented"),
       22 => @panic("findradius is not yet implemented"),
       23 => @panic("bprint is not yet implemented"),
       24 => @panic("sprint is not yet implemented"),
-      25 => @panic("dprint is not yet implemented"),
-      26 => @panic("ftos is not yet implemented"),
-      27 => {
+      25 => { // dprint
+        try Builtins.call(vm, 99, argc); // => print
+      },
+      26 => { // ftos
+        const f = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
+        const strPointer = try vm.pushString("'{d}'", .{ f });
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(strPointer);
+      },
+      27 => { // vtos
         const v_x = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)    ]);
         const v_y = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1) + 1]);
         const v_z = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1) + 2]);
-        _ = try std.fmt.bufPrintZ(vm.mem[vm.stringsOffset * @sizeOf(u32)..], "'{} {} {}'", .{ v_x, v_y, v_z });
-        // We need to return an address that is beyond the read only string
-        // address of the DAT file so that we can distinguish were the string
-        // is stored.
-        const virtualAddr = vm.stringsOffset + vm.dat.header.stringsOffset + vm.dat.header.stringsSize;
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(virtualAddr);
+        const strPointer = try vm.pushString("'{d} {d} {d}'", .{ v_x, v_y, v_z });
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(strPointer);
       },
       28 => @panic("coredump is not yet implemented"),
       29 => @panic("traceon is not yet implemented"),
@@ -129,7 +140,14 @@ const Builtins = struct {
       58 => @panic("WriteString is not yet implemented"),
       59 => @panic("WriteEntity is not yet implemented"),
       67 => @panic("movetogoal is not yet implemented"),
-      68 => @panic("precache_file is not yet implemented"),
+      68 => { // precache_file
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        try stderr.print("warning: precache_file {s} ignored\n", .{ path });
+        // Apparently, this function does nothing.
+        // Returns the string pass to it.
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+      },
       69 => @panic("makestatic is not yet implemented"),
       70 => @panic("changelevel is not yet implemented"),
       72 => @panic("cvar_set is not yet implemented"),
@@ -137,10 +155,17 @@ const Builtins = struct {
       74 => @panic("ambientsound is not yet implemented"),
       75 => @panic("precache_model2 is not yet implemented"),
       76 => @panic("precache_sound2 is not yet implemented"),
-      77 => @panic("precache_file2 is not yet implemented"),
+      77 =>  { // precache_file2
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        try stderr.print("warning: precache_file2 {s} ignored\n", .{ path });
+        // Apparently, this function does nothing.
+        // Returns the string pass to it.
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+      },
       78 => @panic("setspawnparms is not yet implemented"),
       85 => @panic("stov is not yet implemented"),
-      99 => {
+      99 => { // print
         var str = [_]u8{ 0 } ** 1024;
         var head: usize = 0;
         inline for (ParameterList) |parameter| {
@@ -155,9 +180,9 @@ const Builtins = struct {
             }
           }
         }
-        try stdout.print("{s}", .{ str[0..head + 1] });
+        try stdout.print("{s}", .{ str[0..head] });
       },
-      else => @panic("unknow builtin index"),
+      else => @panic("unknow builtin id"),
     }
   }
 };
@@ -172,10 +197,10 @@ const VM = struct {
   //  strings
   //  -------------------     0------------------
   //  globals (ro)             globals (rw)
-  //  -------------------      ------------------ <- stringOffset
-  //  statements               dynamic strings
+  //  -------------------      ------------------ <- stringsOffset
+  //  statements               dynamic strings    <- stringsPointer somewhere in between
   //  -------------------      ------------------ <- stackLimit
-  //  fields                   stack
+  //  fields                   stack              <- sp somewhere
   //  -------------------      ------------------
   //  functions
   //  -------------------
@@ -187,6 +212,8 @@ const VM = struct {
   sp: usize,
   // Dynamic string data
   stringsOffset: usize,
+  // Pointer to the next available dynamic string memory
+  stringsPointer: usize,
   // Upper limit of the stack. If we reach it, it means the stack is overflown.
   stacklimit: usize,
   // Program Counter
@@ -229,6 +256,7 @@ const VM = struct {
       .mem32 = mem32,
       .sp = sp,
       .stringsOffset = dat.globals.len,
+      .stringsPointer = dat.globals.len,
       .stacklimit = dat.globals.len * @sizeOf(u32) + 1024,
       .pc = @intCast(mainFn.?.entryPoint),
     };
@@ -239,12 +267,34 @@ const VM = struct {
     self.* = undefined;
   }
 
+  // Push a string to the dynamic string pile
+  pub fn pushString(self: *Self, comptime fmt: []const u8, args: anytype) !usize {
+    const pointer = self.stringsPointer;
+    self.stringsPointer += (try std.fmt.bufPrintZ(self.mem[self.stringsPointer * @sizeOf(u32)..], fmt, args)).len;
+    // We need to return an address that is beyond the read only string
+    // address of the DAT file so that we can distinguish were the string
+    // is stored.
+    return pointer + self.dat.header.stringsOffset + self.dat.header.stringsSize;
+  }
+
+  // Get a string either from the static string area of the dynamic one.
   pub fn getString(self: Self, offset: u32) [:0]const u8 {
     const datStringBoundary = self.dat.header.stringsOffset + self.dat.header.stringsSize;
+    // In order to manage dynamic strings we have two different memory area for strings.
+    // The static strings that comes from the dat file are below the string offset + string size.
+    // The dynamic strings are above the string offset + string size.
     if (offset < datStringBoundary) {
       return self.dat.getString(offset);
     }
+    // We still need to subtract the string boundary.
     return std.mem.span(@as([*:0]const u8, @ptrCast(self.mem32[offset - datStringBoundary..])));
+  }
+
+  pub fn registerFile(self: *Self, path: []const u8, data: []const u8) void {
+    // Do nothing for now
+    _ = self;
+    _ = path;
+    _ = data;
   }
 
   fn call(self: *Self, statement: datModule.Statement, argc: u8, err: *RuntimeError) !void {
@@ -261,8 +311,10 @@ const VM = struct {
             self.mem32[paramAddress + offset..paramAddress + offset + fun.argSizes[i]],
           );
         }
-        // Save the PC
+        // Save the the string pointer and the PC
         self.mem32[self.sp] = @intCast(self.pc);
+        self.sp -= 1;
+        self.mem32[self.sp] = @intCast(self.stringsPointer);
         self.sp -= 1;
         self.pc = @intCast(fun.entryPoint);
       } else {
@@ -279,7 +331,10 @@ const VM = struct {
   pub fn execute(self: *Self, err: *RuntimeError) !bool {
     const statement = self.dat.statements[self.pc];
     switch (statement.opcode) {
-      datModule.OpCode.DONE => @panic("DONE unimplemented"),
+      datModule.OpCode.DONE => {
+        std.log.debug("DONE {} pc 0x{x} sp 0x{x}", .{ statement.arg1, self.pc, self.sp });
+        return true;
+      },
       datModule.OpCode.STATE => @panic("STATE unimplemented"),
       datModule.OpCode.GOTO => @panic("GOTO unimplemented"),
       datModule.OpCode.ADDRESS => @panic("ADDRESS unimplemented"),
@@ -296,8 +351,12 @@ const VM = struct {
           // The stack is at the bottom of the memory so we are returning from main
           return true;
         }
+        // Restore the the string pointer and the PC
         self.sp += 1;
-        self.pc = self.mem32[self.sp] + 1;
+        self.stringsPointer = self.mem32[self.sp];
+        self.sp += 1;
+        self.pc = self.mem32[self.sp];
+        self.pc += 1;
         return false;
       },
       // Arithmetic Opcode Mnemonic
@@ -306,7 +365,17 @@ const VM = struct {
       datModule.OpCode.MUL_FV => @panic("MUL_FV unimplemented"),
       datModule.OpCode.MUL_VF => @panic("MUL_VF unimplemented"),
       datModule.OpCode.DIV_F => @panic("DIV_F unimplemented"),
-      datModule.OpCode.ADD_F => @panic("ADD_F unimplemented"),
+      datModule.OpCode.ADD_F => {
+        std.log.debug("ADD_F, dst {} = lhs {} - rhs {} - pc {}",
+          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
+
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) + bitCast(f32, self.mem32[rhs]));
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.ADD_V => @panic("ADD_V unimplemented"),
       datModule.OpCode.SUB_F => @panic("SUB_F unimplemented"),
       datModule.OpCode.SUB_V => {
@@ -344,7 +413,16 @@ const VM = struct {
       datModule.OpCode.LOAD_ENT => @panic("LOAD_ENT unimplemented"),
       datModule.OpCode.LOAD_FLD => @panic("LOAD_FLD unimplemented"),
       datModule.OpCode.LOAD_FNC => @panic("LOAD_FNC unimplemented"),
-      datModule.OpCode.STORE_F => @panic("STORE_F unimplemented"),
+      datModule.OpCode.STORE_F => {
+        std.log.debug("STORE_F, src {} dst {} - pc 0x{x}",
+          .{ statement.arg1, statement.arg2, self.pc });
+
+        const src = statement.arg1;
+        const dst = statement.arg2;
+        self.mem32[dst] = self.mem32[src];
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.STORE_V => {
         std.log.debug("STORE_V, src {} dst {} - pc 0x{x}",
           .{ statement.arg1, statement.arg2, self.pc });
