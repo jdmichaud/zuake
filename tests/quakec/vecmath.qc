@@ -4,5 +4,5 @@ string (vector v)        vtos  = #27;
 void() main = {
   local vector vin = '15 43 0';
   local vector v2 = -vin;
-  print("hello", vtos(v2), vin, "\n");
+  print("v2: ", vtos(v2), " vin: ", vtos(vin), "\n");
 };

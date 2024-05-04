@@ -1,0 +1,4 @@
+cmd: hello-variadic.dat
+exit: 0
+output:
+hello world
