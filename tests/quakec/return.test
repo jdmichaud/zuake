@@ -1,4 +1,4 @@
 cmd: return.dat
 exit: 0
 output:
-pi is equal to '3.1399999'
+pi is equal to 3.1399999

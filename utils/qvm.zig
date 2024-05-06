@@ -17,6 +17,14 @@ fn bitCast(comptime T: type, v: anytype) T {
   return @bitCast(v);
 }
 
+fn intCast(comptime T: type, v: anytype) T {
+  switch (@TypeOf(v)) {
+    f16, f32, f64, f80, f128 => return @intFromFloat(v),
+    u8, i8, u16, i16, u32, i32, u64, i64, u128, i128 => return @intCast(v),
+    else => unreachable,
+  }
+}
+
 // Special entry in the global index
 // There are spaced by 3 bytes so that they can take vectors.
 // The calling convention is as follows:
@@ -101,7 +109,7 @@ const Builtins = struct {
       },
       26 => { // ftos
         const f = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
-        const strPointer = try vm.pushString("'{d}'", .{ f });
+        const strPointer = try vm.pushString("{d}", .{ f });
         vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(strPointer);
       },
       27 => { // vtos
@@ -112,7 +120,7 @@ const Builtins = struct {
         vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(strPointer);
       },
       28 => { // coredump
-        try stderr.print("Not connected to any entities yet\n", .{});
+        try stderr.print("warning: coredump: not connected to any entities yet\n", .{});
       },
       29 => @panic("traceon is not yet implemented"),
       30 => @panic("traceoff is not yet implemented"),
@@ -192,7 +200,7 @@ const Builtins = struct {
 const VM = struct {
   const Self = @This();
 
-  dat: datModule.Dat,
+  dat: ?datModule.Dat,
 
   // Dat Memory layout        VM memory layout
   // 0-------------------
@@ -222,46 +230,59 @@ const VM = struct {
   // This is not an offset in memory but an index in the statement list
   pc: usize,
 
-  pub fn init(allocator: std.mem.Allocator, dat: datModule.Dat) !Self {
-    // Check that the global are less than the allocated memory and reserving
-    // 1K for dynamic string data and 1K for the stack.
-    std.debug.assert(dat.globals.len * @sizeOf(u32) < 1024 * 1024 * 1 - 1024 - 1024);
+  pub fn init(allocator: std.mem.Allocator) !Self {
     // We allocate a fixed amount of memory (TODO: make it configurable)
     // We assume that the globals fit within the memory with a little room for the stack
     const mem32 = try allocator.alloc(u32, 256 * 1024 * 1); // 1 Mb for now
     // Keep a []32 slice around for convenience
     const mem: []u8 = std.mem.sliceAsBytes(mem32);
-    // Load globals
-    @memcpy(mem32[0..dat.globals.len], dat.globals);
     // Stacks starts at the end and goes down
     const sp = mem32.len - 1;
-    const mainFn = blk: for (dat.definitions) |def| {
-      if (def.getType() == datModule.QType.Function
-        and std.mem.eql(u8, dat.getString(def.nameOffset), "main")) {
-        break :blk dat.getFunction(def);
-      }
-    } else {
-      return error.noMainFunction;
-    };
-
-    if (mainFn == null) {
-      return error.mainIsNotAFunction;
-    }
-
-    if (mainFn.?.entryPoint < 0) {
-      return error.mainIsABuiltin;
-    }
 
     return Self{
-      .dat = dat,
+      .dat = null,
       .mem = mem,
       .mem32 = mem32,
       .sp = sp,
-      .stringsOffset = dat.globals.len,
-      .stringsPointer = dat.globals.len,
-      .stacklimit = dat.globals.len * @sizeOf(u32) + 1024,
-      .pc = @intCast(mainFn.?.entryPoint),
+      .stringsOffset = 0,
+      .stringsPointer = 0,
+      .stacklimit = 0,
+      .pc = 0,
     };
+  }
+
+  pub fn load(self: *Self, dat: datModule.Dat) void {
+    // Check that the global are less than the allocated memory and reserving
+    // 1K for dynamic string data and 1K for the stack.
+    std.debug.assert(dat.globals.len * @sizeOf(u32) < self.mem.len - 1024 * 2);
+    // Load globals
+    @memcpy(self.mem32[0..dat.globals.len], dat.globals);
+    // Set boundary pointers
+    self.stringsOffset = dat.globals.len;
+    self.stringsPointer = dat.globals.len;
+    self.stacklimit = dat.globals.len * @sizeOf(u32) + 1024;
+    self.dat = dat;
+  }
+
+  pub fn jumpToFunction(self: *Self, functionName: []const u8) !void {
+    const function = blk: for (self.dat.?.definitions) |def| {
+      if (def.getType() == datModule.QType.Function
+        and std.mem.eql(u8, self.dat.?.getString(def.nameOffset), functionName)) {
+        break :blk self.dat.?.getFunction(def);
+      }
+    } else {
+      return error.NoMainFunction;
+    };
+
+    if (function == null) {
+      return error.MainIsNotAFunction;
+    }
+
+    if (function.?.entryPoint < 0) {
+      return error.MainIsABuiltin;
+    }
+
+    self.pc = @intCast(function.?.entryPoint);
   }
 
   pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
@@ -276,17 +297,17 @@ const VM = struct {
     // We need to return an address that is beyond the read only string
     // address of the DAT file so that we can distinguish were the string
     // is stored.
-    return pointer + self.dat.header.stringsOffset + self.dat.header.stringsSize;
+    return pointer + self.dat.?.header.stringsOffset + self.dat.?.header.stringsSize;
   }
 
   // Get a string either from the static string area of the dynamic one.
   pub fn getString(self: Self, offset: u32) [:0]const u8 {
-    const datStringBoundary = self.dat.header.stringsOffset + self.dat.header.stringsSize;
+    const datStringBoundary = self.dat.?.header.stringsOffset + self.dat.?.header.stringsSize;
     // In order to manage dynamic strings we have two different memory area for strings.
     // The static strings that comes from the dat file are below the string offset + string size.
     // The dynamic strings are above the string offset + string size.
     if (offset < datStringBoundary) {
-      return self.dat.getString(offset);
+      return self.dat.?.getString(offset);
     }
     // We still need to subtract the string boundary.
     return std.mem.span(@as([*:0]const u8, @ptrCast(self.mem32[offset - datStringBoundary..])));
@@ -302,16 +323,17 @@ const VM = struct {
   fn call(self: *Self, statement: datModule.Statement, argc: u8, err: *RuntimeError) !void {
     const fnIndex = statement.arg1;
 
-    if (self.dat.getFunctionByIndex(fnIndex)) |fun| {
+    if (self.dat.?.getFunctionByIndex(fnIndex)) |fun| {
       if (fun.entryPoint > 0) {
         // Copy the parameters onto the function locals
+        var offset: u32 = 0;
         for (0..argc) |i| {
           const paramAddress = @intFromEnum(CallRegisters.Parameter1);
-          const offset = i * 3;
           @memcpy(
             self.mem32[fun.firstLocal + offset..fun.firstLocal + offset + fun.argSizes[i]],
-            self.mem32[paramAddress + offset..paramAddress + offset + fun.argSizes[i]],
+            self.mem32[paramAddress + i * 3..paramAddress + i * 3 + fun.argSizes[i]],
           );
+          offset += fun.argSizes[i];
         }
         // Save the the string pointer and the PC
         self.mem32[self.sp] = @intCast(self.pc);
@@ -331,7 +353,11 @@ const VM = struct {
   }
 
   pub fn execute(self: *Self, err: *RuntimeError) !bool {
-    const statement = self.dat.statements[self.pc];
+    const statement = self.dat.?.statements[self.pc];
+    return self.executeStatement(statement, err);
+  }
+
+  inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
     switch (statement.opcode) {
       datModule.OpCode.DONE => {
         std.log.debug("DONE {} pc 0x{x} sp 0x{x}", .{ statement.arg1, self.pc, self.sp });
@@ -380,14 +406,17 @@ const VM = struct {
       },
       datModule.OpCode.ADD_V => @panic("ADD_V unimplemented"),
       datModule.OpCode.SUB_F => {
-        std.log.debug("SUB_F, dst {} = lhs {} - rhs {} - pc {}",
-          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
-
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
         self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) - bitCast(f32, self.mem32[rhs]));
         self.pc += 1;
+
+        std.log.debug("SUB_F, dst {} ({d}) = lhs {} ({d}) - rhs {} ({d}) - pc {}", .{
+          statement.arg3, bitCast(f32, self.mem32[dst]),
+          lhs, bitCast(f32, self.mem32[lhs]),
+          rhs, bitCast(f32, self.mem32[rhs]), self.pc,
+        });
         return false;
       },
       datModule.OpCode.SUB_V => {
@@ -405,11 +434,17 @@ const VM = struct {
       },
       // Comparison Opcode Mnemonic
       datModule.OpCode.EQ_F => {
-        std.log.debug("SUB_V, dst {} - lhs {} - rhs {} - pc {}",
-          .{ statement.arg1, statement.arg2, statement.arg3, self.pc });
-
-        self.mem32[statement.arg1] = if (self.mem32[statement.arg2] == self.mem32[statement.arg3]) 1 else 0;
+        if (self.mem32[statement.arg1] == self.mem32[statement.arg2]) {
+          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+        } else {
+          self.mem32[statement.arg3] = 0;
+        }
         self.pc += 1;
+
+        std.log.debug("EQ_F, dst {} - lhs {} (0x{x}) - rhs {} (0x{x}) - pc {}", .{
+          statement.arg3, statement.arg1, self.mem32[statement.arg1],
+          statement.arg2, self.mem32[statement.arg2], self.pc,
+        });
         return false;
       },
       datModule.OpCode.EQ_V => @panic("EQ_V unimplemented"),
@@ -433,16 +468,16 @@ const VM = struct {
       datModule.OpCode.LOAD_FLD => @panic("LOAD_FLD unimplemented"),
       datModule.OpCode.LOAD_FNC => @panic("LOAD_FNC unimplemented"),
       datModule.OpCode.STORE_F => {
-        std.log.debug("STORE_F, src {} dst {} - pc 0x{x}",
-          .{ statement.arg1, statement.arg2, self.pc });
-
         self.mem32[statement.arg2] = self.mem32[statement.arg1];
         self.pc += 1;
+
+        std.log.debug("STORE_F, dst {} ({d}) = src {} - pc 0x{x}",
+          .{ statement.arg2, bitCast(f32, self.mem32[statement.arg2]), statement.arg1, self.pc });
         return false;
       },
       datModule.OpCode.STORE_V => {
-        std.log.debug("STORE_V, src {} dst {} - pc 0x{x}",
-          .{ statement.arg1, statement.arg2, self.pc });
+        std.log.debug("STORE_V, dst {} = src {} - pc 0x{x}",
+          .{ statement.arg2, statement.arg1, self.pc });
 
         const src = statement.arg1;
         const dst = statement.arg2;
@@ -454,11 +489,13 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.STORE_S => {
-        std.log.debug("STORE_S, src {} dst {} - pc {}",
-          .{ statement.arg1, statement.arg2, self.pc });
-
         self.mem32[statement.arg2] = self.mem32[statement.arg1];
         self.pc += 1;
+
+        var buf = [_:0]u8 { 0 } ** 255;
+        _ = std.mem.replace(u8, self.getString(self.mem32[statement.arg2]), "\n", "\\n", &buf);
+        std.log.debug("STORE_S, dst {} (\"{s}\") = src {} - pc {}",
+          .{ statement.arg2, std.mem.span(@as([*:0]u8, @ptrCast(&buf))), statement.arg1, self.pc });
         return false;
       },
       datModule.OpCode.STORE_ENT => @panic("STORE_ENT unimplemented"),
@@ -478,10 +515,10 @@ const VM = struct {
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
       datModule.OpCode.IF => @panic("IF unimplemented"),
       datModule.OpCode.IFNOT => {
-        std.log.debug("IFNOT, cnd {} pc offset {} - pc {}",
-          .{ statement.arg1, statement.arg2, self.pc });
+        std.log.debug("IFNOT, cnd v{} pc offset v{} - pc {}",
+          .{ self.mem32[statement.arg1], statement.arg2, self.pc });
         if (self.mem32[statement.arg1] == 0) {
-          self.pc = self.mem32[statement.arg2];
+          self.pc += statement.arg2;
         } else {
           self.pc += 1;
         }
@@ -498,7 +535,9 @@ const VM = struct {
       datModule.OpCode.CALL7,
       datModule.OpCode.CALL8 => {
         const callArgc = @intFromEnum(statement.opcode) - @intFromEnum(datModule.OpCode.CALL0);
-        std.log.debug("CALL{}, {} - pc 0x{x} sp 0x{x}", .{ callArgc, statement.arg1, self.pc, self.sp });
+        std.log.debug("CALL{}, {} (0x{x}) - pc 0x{x} sp 0x{x}", .{
+          callArgc, statement.arg1, self.mem32[statement.arg1], self.pc, self.sp,
+        });
         try self.call(statement, @intCast(callArgc), err);
         return false;
       },
@@ -506,25 +545,33 @@ const VM = struct {
       datModule.OpCode.AND => @panic("AND unimplemented"),
       datModule.OpCode.OR => @panic("OR unimplemented"),
       datModule.OpCode.BITAND => {
-        std.log.debug("BITAND, dst {} = lhs {} - rhs {} - pc {}",
-          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
-
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst] = self.mem32[lhs] & self.mem32[rhs];
+        // u32 bitcast to f32
+        // f32 intcast to i32
+        // do the operation
+        // i32 floatcast f32
+        // f32 bitcast to
+        const result = intCast(i32, bitCast(f32, self.mem32[lhs])) & intCast(i32, bitCast(f32, self.mem32[rhs]));
+        self.mem32[dst] = bitCast(u32, @as(f32, @floatFromInt(result)));
         self.pc += 1;
+
+        std.log.debug("BITAND, dst {} ({d}) = lhs {} ({d}) - rhs {} ({d}) - pc {}",
+          .{ dst, bitCast(f32, self.mem32[dst]), lhs, bitCast(f32, self.mem32[lhs]), rhs, bitCast(f32, self.mem32[rhs]), self.pc });
         return false;
       },
       datModule.OpCode.BITOR => {
-        std.log.debug("BITOR, dst {} = lhs {} - rhs {} - pc {}",
-          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
-
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst] = self.mem32[lhs] ^ self.mem32[rhs];
+
+        const result = intCast(i32, bitCast(f32, self.mem32[lhs])) | intCast(i32, bitCast(f32, self.mem32[rhs]));
+        self.mem32[dst] = bitCast(u32, @as(f32, @floatFromInt(result)));
         self.pc += 1;
+
+        std.log.debug("BITOR, dst {} ({d}) = lhs {} ({d}) - rhs {} ({d}) - pc {}",
+          .{ dst, bitCast(f32, self.mem32[dst]), lhs, bitCast(f32, self.mem32[lhs]), rhs, bitCast(f32, self.mem32[rhs]), self.pc });
         return false;
       },
     }
@@ -562,8 +609,11 @@ pub fn main() !u8 {
     std.posix.exit(1);
   }
 
-  var vm = try VM.init(allocator, dat);
+  var vm = try VM.init(allocator);
   defer vm.deinit(allocator);
+  vm.load(dat);
+  try vm.jumpToFunction("main");
+
   var err = RuntimeError{};
   while (true) {
     const done = vm.execute(&err) catch |e| {

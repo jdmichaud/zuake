@@ -1,5 +1,5 @@
-string (float v)         ftos  = #27;
-string (vector v)        vtos  = #28;
+string (float v)         ftos  = #26;
+string (vector v)        vtos  = #27;
 void   (string str, ...) print = #99;
 
 vector(float x, float y) swap = {

@@ -12,6 +12,7 @@ failed=0
 
 tmpfile1=$(mktemp)
 tmpfile2=$(mktemp)
+tmpdiff=$(mktemp)
 
 for testfile in $(ls *.test)
 do
@@ -20,7 +21,7 @@ do
   cmd=$(grep cmd $testfile | awk -F':' '{ print $2 }')
   exitcode=$(grep exit $testfile | awk -F':' '{ print $2 }')
   $qvm $cmd > $tmpfile1 2>&1
-  tail +4 $testfile > $tmpfile2  
+  tail +4 $testfile > $tmpfile2
   observed=$?
   echo -n $cmd
   if [ $observed -ne $exitcode ]
@@ -29,7 +30,7 @@ do
     echo -n " incorrect exit code"
   fi
 
-  diff $tmpfile1 $tmpfile2
+  diff $tmpfile1 $tmpfile2 > ${tmpdiff}
   if [ $? -ne 0 ]
   then
     fail=1
@@ -40,6 +41,7 @@ do
   then
     failed=$((failed+1))
     echo ""
+    cat ${tmpdiff}
   else
     echo " OK"
   fi

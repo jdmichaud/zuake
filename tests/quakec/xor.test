@@ -1,3 +1,19 @@
 cmd: xor.dat
 exit: 0
 output:
+6
+8
+commutative
+assocative
+inverse
+vv: '6 8 6'
+vf: '15 8 15'
+vv: '6 8 6'
+vf: '15 8 15'
+100:200 swapped is: 200:100
+'1 2 3':'4 5 6' swapped is: '4 5 6':'1 2 3'
+'4 7 6'
+'4 7 6'
+'4 7 6'
+'4 7 6'
+'4 7 6'
