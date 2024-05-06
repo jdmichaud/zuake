@@ -111,7 +111,9 @@ const Builtins = struct {
         const strPointer = try vm.pushString("'{d} {d} {d}'", .{ v_x, v_y, v_z });
         vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(strPointer);
       },
-      28 => @panic("coredump is not yet implemented"),
+      28 => { // coredump
+        try stderr.print("Not connected to any entities yet\n", .{});
+      },
       29 => @panic("traceon is not yet implemented"),
       30 => @panic("traceoff is not yet implemented"),
       31 => @panic("eprint is not yet implemented"),
@@ -377,7 +379,17 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.ADD_V => @panic("ADD_V unimplemented"),
-      datModule.OpCode.SUB_F => @panic("SUB_F unimplemented"),
+      datModule.OpCode.SUB_F => {
+        std.log.debug("SUB_F, dst {} = lhs {} - rhs {} - pc {}",
+          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
+
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) - bitCast(f32, self.mem32[rhs]));
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.SUB_V => {
         std.log.debug("SUB_V, dst {} = lhs {} - rhs {} - pc {}",
           .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
@@ -392,7 +404,14 @@ const VM = struct {
         return false;
       },
       // Comparison Opcode Mnemonic
-      datModule.OpCode.EQ_F => @panic("EQ_F unimplemented"),
+      datModule.OpCode.EQ_F => {
+        std.log.debug("SUB_V, dst {} - lhs {} - rhs {} - pc {}",
+          .{ statement.arg1, statement.arg2, statement.arg3, self.pc });
+
+        self.mem32[statement.arg1] = if (self.mem32[statement.arg2] == self.mem32[statement.arg3]) 1 else 0;
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.EQ_V => @panic("EQ_V unimplemented"),
       datModule.OpCode.EQ_S => @panic("EQ_S unimplemented"),
       datModule.OpCode.EQ_E => @panic("EQ_E unimplemented"),
@@ -417,9 +436,7 @@ const VM = struct {
         std.log.debug("STORE_F, src {} dst {} - pc 0x{x}",
           .{ statement.arg1, statement.arg2, self.pc });
 
-        const src = statement.arg1;
-        const dst = statement.arg2;
-        self.mem32[dst] = self.mem32[src];
+        self.mem32[statement.arg2] = self.mem32[statement.arg1];
         self.pc += 1;
         return false;
       },
@@ -440,10 +457,7 @@ const VM = struct {
         std.log.debug("STORE_S, src {} dst {} - pc {}",
           .{ statement.arg1, statement.arg2, self.pc });
 
-        const src = statement.arg1;
-        const dst = statement.arg2;
-
-        self.mem32[dst] = self.mem32[src];
+        self.mem32[statement.arg2] = self.mem32[statement.arg1];
         self.pc += 1;
         return false;
       },
@@ -463,7 +477,16 @@ const VM = struct {
       datModule.OpCode.NOT_ENT => @panic("NOT_ENT unimplemented"),
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
       datModule.OpCode.IF => @panic("IF unimplemented"),
-      datModule.OpCode.IFNOT => @panic("IFNOT unimplemented"),
+      datModule.OpCode.IFNOT => {
+        std.log.debug("IFNOT, cnd {} pc offset {} - pc {}",
+          .{ statement.arg1, statement.arg2, self.pc });
+        if (self.mem32[statement.arg1] == 0) {
+          self.pc = self.mem32[statement.arg2];
+        } else {
+          self.pc += 1;
+        }
+        return false;
+      },
       // Function Calls Opcode Mnemonic
       datModule.OpCode.CALL0,
       datModule.OpCode.CALL1,
@@ -482,8 +505,28 @@ const VM = struct {
       // Boolean Operations Opcode Mnemonic
       datModule.OpCode.AND => @panic("AND unimplemented"),
       datModule.OpCode.OR => @panic("OR unimplemented"),
-      datModule.OpCode.BITAND => @panic("BITAND unimplemented"),
-      datModule.OpCode.BITOR => @panic("BITOR unimplemented"),
+      datModule.OpCode.BITAND => {
+        std.log.debug("BITAND, dst {} = lhs {} - rhs {} - pc {}",
+          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
+
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst] = self.mem32[lhs] & self.mem32[rhs];
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.BITOR => {
+        std.log.debug("BITOR, dst {} = lhs {} - rhs {} - pc {}",
+          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
+
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst] = self.mem32[lhs] ^ self.mem32[rhs];
+        self.pc += 1;
+        return false;
+      },
     }
   }
 };
