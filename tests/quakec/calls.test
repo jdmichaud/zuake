@@ -1,0 +1,5 @@
+cmd: --jump-to main
+file: calls.dat
+exit: 0
+output:
+46
