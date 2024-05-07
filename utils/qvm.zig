@@ -237,19 +237,19 @@ const VM = struct {
 
   options: VMOptions,
 
-  pub fn init(options: VMOptions) !Self {
+  pub fn init(allocator: std.mem.Allocator, options: VMOptions) !Self {
     // We allocate a fixed amount of memory (TODO: make it configurable)
     // We assume that the globals fit within the memory with a little room for the stack
-    var mem32 = [_]u32{ 0 } ** (256 * 1024 * 1); // 1 Mb for now
+    const mem32 = try allocator.alloc(u32, 256 * 1024 * 1); // 1 Mb for now
     // Keep a []32 slice around for convenience
-    const mem: []u8 = std.mem.sliceAsBytes(&mem32);
+    const mem: []u8 = std.mem.sliceAsBytes(mem32);
     // Stacks starts at the end and goes down
     const sp = mem32.len - 1;
 
     return Self{
       .dat = null,
       .mem = mem,
-      .mem32 = &mem32,
+      .mem32 = mem32,
       .sp = sp,
       .stringsOffset = 0,
       .stringsPointer = 0,
@@ -294,9 +294,8 @@ const VM = struct {
   }
 
   pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-    _ = self; _ = allocator;
-    // allocator.free(self.mem);
-    // self.* = undefined;
+    allocator.free(self.mem);
+    self.* = undefined;
   }
 
   // Push a string to the dynamic string pile
@@ -368,7 +367,7 @@ const VM = struct {
 
   inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
     if (self.options.trace) {
-      std.log.debug("{s: <7} {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] pc 0x{x} sp 0x{x}", .{
+      try stdout.print("{s: <7} {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] pc {} sp 0x{x}\n", .{
         @tagName(statement.opcode),
         statement.arg1, bitCast(f32, self.mem32[statement.arg1]),
         statement.arg2, bitCast(f32, self.mem32[statement.arg2]),
@@ -636,7 +635,8 @@ pub fn main() !u8 {
     std.posix.exit(1);
   }
 
-  var vm = try VM.init(.{ .trace = parsedArgs.getSwitch("trace") });
+  var vm = try VM.init(allocator, .{ .trace = parsedArgs.getSwitch("trace") });
+  defer vm.deinit(allocator);
   vm.load(dat);
   if (parsedArgs.getSwitch("jump-to")) {
     try vm.jumpToFunction(parsedArgs.getOption([]const u8, "jump-to") orelse "main");
