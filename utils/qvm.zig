@@ -21,7 +21,7 @@ fn bitCast(comptime T: type, v: anytype) T {
 fn intCast(comptime T: type, v: anytype) T {
   switch (@TypeOf(v)) {
     f16, f32, f64, f80, f128 => return @intFromFloat(v),
-    u8, i8, u16, i16, u32, i32, u64, i64, u128, i128 => return @intCast(v),
+    u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize => return @intCast(v),
     else => unreachable,
   }
 }
@@ -383,7 +383,10 @@ const VM = struct {
         return true;
       },
       datModule.OpCode.STATE => @panic("STATE unimplemented"),
-      datModule.OpCode.GOTO => @panic("GOTO unimplemented"),
+      datModule.OpCode.GOTO => {
+        self.pc = intCast(usize, intCast(i32, self.pc) + bitCast(i16, statement.arg1));
+        return false;
+      },
       datModule.OpCode.ADDRESS => @panic("ADDRESS unimplemented"),
       datModule.OpCode.RETURN => {
         const src = statement.arg1;
@@ -457,10 +460,42 @@ const VM = struct {
       datModule.OpCode.NE_S => @panic("NE_S unimplemented"),
       datModule.OpCode.NE_E => @panic("NE_E unimplemented"),
       datModule.OpCode.NE_FNC => @panic("NE_FNC unimplemented"),
-      datModule.OpCode.LE => @panic("LE unimplemented"),
-      datModule.OpCode.GE => @panic("GE unimplemented"),
-      datModule.OpCode.LT => @panic("LT unimplemented"),
-      datModule.OpCode.GT => @panic("GT unimplemented"),
+      datModule.OpCode.LE => {
+        if (self.mem32[statement.arg1] <= self.mem32[statement.arg2]) {
+          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+        } else {
+          self.mem32[statement.arg3] = 0;
+        }
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.GE => {
+        if (self.mem32[statement.arg1] >= self.mem32[statement.arg2]) {
+          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+        } else {
+          self.mem32[statement.arg3] = 0;
+        }
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.LT => {
+        if (self.mem32[statement.arg1] < self.mem32[statement.arg2]) {
+          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+        } else {
+          self.mem32[statement.arg3] = 0;
+        }
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.GT => {
+        if (self.mem32[statement.arg1] > self.mem32[statement.arg2]) {
+          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+        } else {
+          self.mem32[statement.arg3] = 0;
+        }
+        self.pc += 1;
+        return false;
+      },
       // Loading / Storing Opcode Mnemonic
       datModule.OpCode.LOAD_F => @panic("LOAD_F unimplemented"),
       datModule.OpCode.LOAD_V => @panic("LOAD_V unimplemented"),

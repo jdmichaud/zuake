@@ -1,5 +1,5 @@
 void   (string str, ...) print = #99;
-string (float f) ftos = #26;
+string (float f)         ftos = #26;
 
 float(vector v) foo = {
   return 1.14 + v_y;
