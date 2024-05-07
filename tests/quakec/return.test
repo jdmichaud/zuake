@@ -1,4 +1,5 @@
-cmd: return.dat
+cmd: --jump-to main
+file: return.dat
 exit: 0
 output:
 pi is equal to 3.1399999

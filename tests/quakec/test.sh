@@ -19,11 +19,12 @@ do
   fail=0
   executed=$((executed+1))
   cmd=$(grep cmd $testfile | awk -F':' '{ print $2 }')
+  binary=$(grep file $testfile | awk -F':' '{ print $2 }')
   exitcode=$(grep exit $testfile | awk -F':' '{ print $2 }')
-  $qvm $cmd > $tmpfile1 2>&1
-  tail +4 $testfile > $tmpfile2
+  $qvm $cmd $binary > $tmpfile1 2>&1
+  tail +5 $testfile > $tmpfile2
   observed=$?
-  echo -n $cmd
+  echo -n $binary
   if [ $observed -ne $exitcode ]
   then
     fail=1

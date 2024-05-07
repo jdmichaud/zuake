@@ -198,6 +198,10 @@ const Builtins = struct {
   }
 };
 
+pub const VMOptions = struct {
+  trace: bool = false,
+};
+
 const VM = struct {
   const Self = @This();
 
@@ -231,24 +235,27 @@ const VM = struct {
   // This is not an offset in memory but an index in the statement list
   pc: usize,
 
-  pub fn init(allocator: std.mem.Allocator) !Self {
+  options: VMOptions,
+
+  pub fn init(options: VMOptions) !Self {
     // We allocate a fixed amount of memory (TODO: make it configurable)
     // We assume that the globals fit within the memory with a little room for the stack
-    const mem32 = try allocator.alloc(u32, 256 * 1024 * 1); // 1 Mb for now
+    var mem32 = [_]u32{ 0 } ** (256 * 1024 * 1); // 1 Mb for now
     // Keep a []32 slice around for convenience
-    const mem: []u8 = std.mem.sliceAsBytes(mem32);
+    const mem: []u8 = std.mem.sliceAsBytes(&mem32);
     // Stacks starts at the end and goes down
     const sp = mem32.len - 1;
 
     return Self{
       .dat = null,
       .mem = mem,
-      .mem32 = mem32,
+      .mem32 = &mem32,
       .sp = sp,
       .stringsOffset = 0,
       .stringsPointer = 0,
       .stacklimit = 0,
       .pc = 0,
+      .options = options,
     };
   }
 
@@ -287,8 +294,9 @@ const VM = struct {
   }
 
   pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-    allocator.free(self.mem);
-    self.* = undefined;
+    _ = self; _ = allocator;
+    // allocator.free(self.mem);
+    // self.* = undefined;
   }
 
   // Push a string to the dynamic string pile
@@ -359,16 +367,25 @@ const VM = struct {
   }
 
   inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
+    if (self.options.trace) {
+      std.log.debug("{s: <7} {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] pc 0x{x} sp 0x{x}", .{
+        @tagName(statement.opcode),
+        statement.arg1, bitCast(f32, self.mem32[statement.arg1]),
+        statement.arg2, bitCast(f32, self.mem32[statement.arg2]),
+        statement.arg3, bitCast(f32, self.mem32[statement.arg3]),
+        self.pc,
+        self.sp,
+      });
+    }
+
     switch (statement.opcode) {
       datModule.OpCode.DONE => {
-        std.log.debug("DONE {} pc 0x{x} sp 0x{x}", .{ statement.arg1, self.pc, self.sp });
         return true;
       },
       datModule.OpCode.STATE => @panic("STATE unimplemented"),
       datModule.OpCode.GOTO => @panic("GOTO unimplemented"),
       datModule.OpCode.ADDRESS => @panic("ADDRESS unimplemented"),
       datModule.OpCode.RETURN => {
-        std.log.debug("RETURN {} pc 0x{x} sp 0x{x}", .{ statement.arg1, self.pc, self.sp });
         const src = statement.arg1;
         if (src != 0) {
           const returnAddress = @intFromEnum(CallRegisters.ReturnValue);
@@ -395,9 +412,6 @@ const VM = struct {
       datModule.OpCode.MUL_VF => @panic("MUL_VF unimplemented"),
       datModule.OpCode.DIV_F => @panic("DIV_F unimplemented"),
       datModule.OpCode.ADD_F => {
-        std.log.debug("ADD_F, dst {} = lhs {} - rhs {} - pc {}",
-          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
-
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
@@ -412,18 +426,9 @@ const VM = struct {
         const rhs = statement.arg2;
         self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) - bitCast(f32, self.mem32[rhs]));
         self.pc += 1;
-
-        std.log.debug("SUB_F, dst {} ({d}) = lhs {} ({d}) - rhs {} ({d}) - pc {}", .{
-          statement.arg3, bitCast(f32, self.mem32[dst]),
-          lhs, bitCast(f32, self.mem32[lhs]),
-          rhs, bitCast(f32, self.mem32[rhs]), self.pc,
-        });
         return false;
       },
       datModule.OpCode.SUB_V => {
-        std.log.debug("SUB_V, dst {} = lhs {} - rhs {} - pc {}",
-          .{ statement.arg3, statement.arg1, statement.arg2, self.pc });
-
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
@@ -441,11 +446,6 @@ const VM = struct {
           self.mem32[statement.arg3] = 0;
         }
         self.pc += 1;
-
-        std.log.debug("EQ_F, dst {} - lhs {} (0x{x}) - rhs {} (0x{x}) - pc {}", .{
-          statement.arg3, statement.arg1, self.mem32[statement.arg1],
-          statement.arg2, self.mem32[statement.arg2], self.pc,
-        });
         return false;
       },
       datModule.OpCode.EQ_V => @panic("EQ_V unimplemented"),
@@ -471,21 +471,14 @@ const VM = struct {
       datModule.OpCode.STORE_F => {
         self.mem32[statement.arg2] = self.mem32[statement.arg1];
         self.pc += 1;
-
-        std.log.debug("STORE_F, dst {} ({d}) = src {} - pc 0x{x}",
-          .{ statement.arg2, bitCast(f32, self.mem32[statement.arg2]), statement.arg1, self.pc });
         return false;
       },
       datModule.OpCode.STORE_V => {
-        std.log.debug("STORE_V, dst {} = src {} - pc 0x{x}",
-          .{ statement.arg2, statement.arg1, self.pc });
-
         const src = statement.arg1;
         const dst = statement.arg2;
         self.mem32[dst    ] = self.mem32[src    ];
         self.mem32[dst + 1] = self.mem32[src + 1];
         self.mem32[dst + 2] = self.mem32[src + 2];
-
         self.pc += 1;
         return false;
       },
@@ -495,8 +488,6 @@ const VM = struct {
 
         var buf = [_:0]u8 { 0 } ** 255;
         _ = std.mem.replace(u8, self.getString(self.mem32[statement.arg2]), "\n", "\\n", &buf);
-        std.log.debug("STORE_S, dst {} (\"{s}\") = src {} - pc {}",
-          .{ statement.arg2, std.mem.span(@as([*:0]u8, @ptrCast(&buf))), statement.arg1, self.pc });
         return false;
       },
       datModule.OpCode.STORE_ENT => @panic("STORE_ENT unimplemented"),
@@ -516,8 +507,6 @@ const VM = struct {
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
       datModule.OpCode.IF => @panic("IF unimplemented"),
       datModule.OpCode.IFNOT => {
-        std.log.debug("IFNOT, cnd v{} pc offset v{} - pc {}",
-          .{ self.mem32[statement.arg1], statement.arg2, self.pc });
         if (self.mem32[statement.arg1] == 0) {
           self.pc += statement.arg2;
         } else {
@@ -536,9 +525,6 @@ const VM = struct {
       datModule.OpCode.CALL7,
       datModule.OpCode.CALL8 => {
         const callArgc = @intFromEnum(statement.opcode) - @intFromEnum(datModule.OpCode.CALL0);
-        std.log.debug("CALL{}, {} (0x{x}) - pc 0x{x} sp 0x{x}", .{
-          callArgc, statement.arg1, self.mem32[statement.arg1], self.pc, self.sp,
-        });
         try self.call(statement, @intCast(callArgc), err);
         return false;
       },
@@ -557,9 +543,6 @@ const VM = struct {
         const result = intCast(i32, bitCast(f32, self.mem32[lhs])) & intCast(i32, bitCast(f32, self.mem32[rhs]));
         self.mem32[dst] = bitCast(u32, @as(f32, @floatFromInt(result)));
         self.pc += 1;
-
-        std.log.debug("BITAND, dst {} ({d}) = lhs {} ({d}) - rhs {} ({d}) - pc {}",
-          .{ dst, bitCast(f32, self.mem32[dst]), lhs, bitCast(f32, self.mem32[lhs]), rhs, bitCast(f32, self.mem32[rhs]), self.pc });
         return false;
       },
       datModule.OpCode.BITOR => {
@@ -570,9 +553,6 @@ const VM = struct {
         const result = intCast(i32, bitCast(f32, self.mem32[lhs])) | intCast(i32, bitCast(f32, self.mem32[rhs]));
         self.mem32[dst] = bitCast(u32, @as(f32, @floatFromInt(result)));
         self.pc += 1;
-
-        std.log.debug("BITOR, dst {} ({d}) = lhs {} ({d}) - rhs {} ({d}) - pc {}",
-          .{ dst, bitCast(f32, self.mem32[dst]), lhs, bitCast(f32, self.mem32[lhs]), rhs, bitCast(f32, self.mem32[rhs]), self.pc });
         return false;
       },
     }
@@ -597,6 +577,11 @@ pub fn main() !u8 {
       .short = "t",
       .long = "trace",
       .help = "Enable tracing of instructions",
+    }, .{
+      .short = "j",
+      .long = "jump-to",
+      .arg = .{ .name = "function", .type = []const u8 },
+      .help = "Jump to function on startup",
     } },
   }).parse(args);
 
@@ -616,10 +601,11 @@ pub fn main() !u8 {
     std.posix.exit(1);
   }
 
-  var vm = try VM.init(allocator);
-  defer vm.deinit(allocator);
+  var vm = try VM.init(.{ .trace = parsedArgs.getSwitch("trace") });
   vm.load(dat);
-  try vm.jumpToFunction("main");
+  if (parsedArgs.getSwitch("jump-to")) {
+    try vm.jumpToFunction(parsedArgs.getOption([]const u8, "jump-to") orelse "main");
+  }
 
   var err = RuntimeError{};
   while (true) {

@@ -1,4 +1,5 @@
-cmd: vecmath.dat
+cmd: --jump-to main
+file: vecmath.dat
 exit: 0
 output:
 v2: '-15 -43 0' vin: '15 43 0'

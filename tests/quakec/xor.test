@@ -1,4 +1,5 @@
-cmd: xor.dat
+cmd: --jump-to main
+file: xor.dat
 exit: 0
 output:
 6

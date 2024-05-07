@@ -1,4 +1,5 @@
-cmd: hello.dat
+cmd: --jump-to main
+file: hello.dat
 exit: 0
 output:
 hello world

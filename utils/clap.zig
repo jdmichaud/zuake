@@ -118,6 +118,7 @@ pub fn parser(argsDescriptor: ArgDescriptor) type {
                 argsStore.switchMap.put(option.long, true)
                     catch @panic("increase fixed buffer size");
                 if (option.arg) |optionArg| {
+                  _ = optionArg;
                   // We have an argument to the option
                   if (i > args.len - 1 or args[i + 1][0] == '-') {
                     // Missing argument
@@ -125,16 +126,17 @@ pub fn parser(argsDescriptor: ArgDescriptor) type {
                         catch unreachable;
                     printUsage(allocator, argsDescriptor);
                   }
-                  argsStore.optionMap.put(option.long, optionArg)
+                  argsStore.optionMap.put(option.long, args[i + 1])
                     catch @panic("increase fixed buffer size");
                   i += 1;
                 }
-              } else {
-                // An option was provided but not described.
-                stderr.print("error: unknown option {s}\n", .{ arg }) catch unreachable;
-                printUsage(allocator, argsDescriptor);
-                std.posix.exit(1);
+                break;
               }
+            } else {
+              // An option was provided but not described.
+              stderr.print("error: unknown option {s}\n", .{ arg }) catch unreachable;
+              printUsage(allocator, argsDescriptor);
+              std.posix.exit(1);
             }
           } else {
             // Here are the argument to the program.
