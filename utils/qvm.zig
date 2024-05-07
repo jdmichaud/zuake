@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const misc = @import("misc.zig");
+const clap = @import("clap.zig");
 const datModule = @import("dat.zig");
 
 const stdout = std.io.getStdOut().writer();
@@ -586,14 +587,20 @@ pub fn main() !u8 {
   const args = try std.process.argsAlloc(allocator);
   defer std.process.argsFree(allocator, args);
 
-  if (args.len != 2 or (args.len != 1 and (std.mem.eql(u8, args[1], "--help")
-        or std.mem.eql(u8, args[1], "-h")))) {
-    try stdout.print("{s} is a bsp29 tool\n\n", .{ args[0] });
-    try stdout.print("usage:\n", .{});
-    try stdout.print("    {s} <datfile> - Show the dat file content\n", .{ args[0] });
-    return 1;
-  }
-  const mapfilepath = args[1];
+  const parsedArgs = clap.parser(clap.ArgDescriptor{
+    .name = "qvm",
+    .description = "A QuakeC virtual machine",
+    .withHelp = true,
+    .version = "0.1.0",
+    .expectArgs = &[_][]const u8{ "datfile" },
+    .options = &[_]clap.OptionDescription{ .{
+      .short = "t",
+      .long = "trace",
+      .help = "Enable tracing of instructions",
+    } },
+  }).parse(args);
+
+  const mapfilepath = parsedArgs.arguments.items[0];
   const buffer = misc.load(mapfilepath) catch |err| {
     try stderr.print("error: {}, trying to open open {s}\n", .{ err, args[1] });
     std.posix.exit(1);
