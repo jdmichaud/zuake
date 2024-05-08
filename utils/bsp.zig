@@ -2,7 +2,7 @@
 // reference:
 //   https://www.gamers.org/dEngine/quake/spec/quake-spec34/qkspec_4.htm#CBSPG
 //
-// clear && zig build-exe -freference-trace bsp.zig && ./bsp ../data/pak/maps/start.bsp
+// clear && zig build-exe -freference-trace -fno-llvm -fno-lld bsp.zig && ./bsp ../data/pak/maps/start.bsp
 const std = @import("std");
 
 const stdout = std.io.getStdOut().writer();
@@ -516,6 +516,15 @@ fn loadMipTextures(allocator: std.mem.Allocator, bsp: []const u8,
   var textures: []*align(1) const MipTexture = try allocator.alloc(*align(1) const MipTexture, mipTexturesHeader.numtex);
   var i: usize = 0;
   while (i < mipTexturesHeader.numtex) {
+    if (mipTexturesHeader.getOffsets()[i] == 0xFFFFFFFF) {
+      // e1m2 has an offset of 0xFFFFFFFF at 0xCFE8C.
+      std.log.warn("found incorrect mipTexture offset at 0x{x}",
+        .{ @intFromPtr(&mipTexturesHeader.getOffsets()[i]) - @intFromPtr(bsp.ptr) });
+      i += 1;
+      continue;
+    }
+    // Offset are relative to the position in the file.
+    // Here we convert from address in memory to position in the original file.
     const mipTextureOffset = @intFromPtr(mipTexturesHeader) - @intFromPtr(bsp.ptr) + mipTexturesHeader.getOffsets()[i];
     textures[i] = @alignCast(@ptrCast(&bsp[mipTextureOffset]));
     i += 1;
