@@ -3,7 +3,7 @@
 // reference:
 //  https://www.gamers.org/dEngine/quake/spec/quake-spec34/qkspec_2.htm#CMFME
 //
-// cmd: clear && zig build-exe -freference-trace entity.zig && ./entity ../data/pak/maps/start.bsp
+// cmd: clear && zig build-exe -freference-trace -fno-llvm -fno-lld entity.zig && ./entity ../data/pak/maps/start.bsp
 
 const std = @import("std");
 const bspModule = @import("bsp.zig");
@@ -28,21 +28,40 @@ fn load(pathname: []const u8) ![]align(4096) const u8 {
   return buffer;
 }
 
+pub const EntityValueE = enum {
+  Float,
+  String,
+};
+
+pub const EntityValue = union(EntityValueE) {
+  Float: f32,
+  String: []const u8,
+};
+
 pub const EntityField = struct {
   const Self = @This();
 
-  value: []const u8,
+  value: EntityValue,
 
-  pub fn toString(self: Self) []const u8 {
-    return self.value;
+  pub fn isString(self: Self) bool {
+    switch (self.value) {
+      .String => return true,
+      else => return false,
+    }
   }
 
-  pub fn toInteger(self: Self) i64 {
-    return try std.fmt.parseInt(i64, self.value, 10);
+  pub fn toString(self: Self) ![]const u8 {
+    switch (self.value) {
+      .String => |s| return s,
+      else => return error.Conversion,
+    }
   }
 
-  pub fn toFloat(self: Self) f32 {
-    return try std.fmt.parseFloat(f32, self.value);
+  pub fn toFloat(self: Self) !f32 {
+    switch (self.value) {
+      .Float => |f| return f,
+      else => return error.Conversion,
+    }
   }
 };
 
@@ -111,8 +130,14 @@ pub const EntityList = struct {
         State.PARSING_VALUE => {
           if (c == '"') {
             state = State.LOOKING_FOR_KEY;
+            const str = try value.toOwnedSlice();
+            const floatValueTry = std.fmt.parseFloat(f32, str);
+            const entityValue = if (floatValueTry) |floatValue| blk: {
+              allocator.free(str);
+              break :blk EntityValue{ .Float = floatValue };
+            } else |_| EntityValue{ .String = str };
             try entity.put(try key.toOwnedSlice(), EntityField {
-              .value = try value.toOwnedSlice(),
+              .value = entityValue,
             });
             key.deinit();
             value.deinit();
@@ -134,7 +159,10 @@ pub const EntityList = struct {
       var it = entityMap.iterator();
       while (it.next()) |entityValue| {
         self.allocator.free(entityValue.key_ptr.*);
-        self.allocator.free(entityValue.value_ptr.value);
+        switch (entityValue.value_ptr.value) {
+          .String => |s| self.allocator.free(s),
+          else => {},
+        }
       }
       entityMap.deinit();
     }
@@ -145,7 +173,7 @@ pub const EntityList = struct {
   pub fn get(self: Self, key: []const u8) ?Entity {
     for (self.entities) |entityMap| {
       if (entityMap.get("classname")) |entityValue| {
-        if (std.mem.eql(u8, entityValue.toString(), key)) {
+        if (entityValue.isString() and std.mem.eql(u8, entityValue.toString() catch unreachable, key)) {
           return entityMap;
         }
       }
@@ -182,5 +210,5 @@ pub fn main() !void {
   var entities = try EntityList.init(allocator, bsp.entities);
   defer entities.deinit();
 
-  std.log.debug("{s}", .{ entities.get("worldspawn").?.get("message").?.toString() });
+  std.log.debug("{s}", .{ try entities.get("worldspawn").?.get("message").?.toString() });
 }

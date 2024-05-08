@@ -172,7 +172,7 @@ const Definition = packed struct {
   }
 };
 
-const Field = packed struct {
+pub const Field = packed struct {
   ty: QType,
   offset: u16,
   nameOffset: u32, // offset in the string table
