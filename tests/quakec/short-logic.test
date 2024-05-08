@@ -1,0 +1,9 @@
+cmd: --jump-to main
+file: short-logic.dat
+exit: 0
+output:
+13=13 23=23 OK
+13=13 33=33 OK
+16=16 33=33 OK
+26=26 36=36 OK
+16=16 26=26 36=36 OK

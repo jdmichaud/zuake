@@ -1,0 +1,21 @@
+cmd: --jump-to main
+file: ternary.dat
+exit: 0
+output:
+1 a=1
+1 a=2
+1 a=other
+0 not met
+0 not met
+0 not met
+1 a=1
+1 a=2
+1 a=other
+0 not met
+0 not met
+0 not met
+5
+9
+10
+select_a: 1
+select_b: 0
