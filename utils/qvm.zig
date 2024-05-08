@@ -95,7 +95,7 @@ const Builtins = struct {
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
         const data = misc.load(path) catch |err| {
-          try stderr.print("warning: {}, trying to open open {s}\n", .{ err, path });
+          try stderr.print("warning: {}, trying to open {s}\n", .{ err, path });
           return;
         };
         vm.registerFile(path, data);
@@ -150,6 +150,10 @@ const Builtins = struct {
       57 => @panic("WriteAngle is not yet implemented"),
       58 => @panic("WriteString is not yet implemented"),
       59 => @panic("WriteEntity is not yet implemented"),
+      62 => { // sqrt
+        const result = std.math.sqrt(bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)]));
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = bitCast(u32, result);
+      },
       67 => @panic("movetogoal is not yet implemented"),
       68 => { // precache_file
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
@@ -176,6 +180,11 @@ const Builtins = struct {
       },
       78 => @panic("setspawnparms is not yet implemented"),
       85 => @panic("stov is not yet implemented"),
+      97 => { // pow
+        const base = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
+        const exp = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter2)]);
+        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = bitCast(u32, std.math.pow(f32, base, exp));
+      },
       99 => { // print
         var str = [_]u8{ 0 } ** 1024;
         var head: usize = 0;
@@ -408,11 +417,54 @@ const VM = struct {
         return false;
       },
       // Arithmetic Opcode Mnemonic
-      datModule.OpCode.MUL_F => @panic("MUL_F unimplemented"),
-      datModule.OpCode.MUL_V => @panic("MUL_V unimplemented"),
-      datModule.OpCode.MUL_FV => @panic("MUL_FV unimplemented"),
-      datModule.OpCode.MUL_VF => @panic("MUL_VF unimplemented"),
-      datModule.OpCode.DIV_F => @panic("DIV_F unimplemented"),
+      datModule.OpCode.MUL_F => {
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) * bitCast(f32, self.mem32[rhs]));
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.MUL_V => {
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs    ]) * bitCast(f32, self.mem32[rhs    ]))
+                        + bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) * bitCast(f32, self.mem32[rhs + 1]))
+                        + bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) * bitCast(f32, self.mem32[rhs + 2]));
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.MUL_FV => {
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        const f = bitCast(f32, self.mem32[lhs]);
+        self.mem32[dst    ] = bitCast(u32, f * bitCast(f32, self.mem32[rhs    ]));
+        self.mem32[dst + 1] = bitCast(u32, f * bitCast(f32, self.mem32[rhs + 1]));
+        self.mem32[dst + 2] = bitCast(u32, f * bitCast(f32, self.mem32[rhs + 2]));
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.MUL_VF => {
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        const f = bitCast(f32, self.mem32[rhs]);
+        self.mem32[dst    ] = bitCast(u32, f * bitCast(f32, self.mem32[lhs    ]));
+        self.mem32[dst + 1] = bitCast(u32, f * bitCast(f32, self.mem32[lhs + 1]));
+        self.mem32[dst + 2] = bitCast(u32, f * bitCast(f32, self.mem32[lhs + 2]));
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.DIV_F => {
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) / bitCast(f32, self.mem32[rhs]));
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.ADD_F => {
         const dst = statement.arg3;
         const lhs = statement.arg1;
@@ -421,7 +473,16 @@ const VM = struct {
         self.pc += 1;
         return false;
       },
-      datModule.OpCode.ADD_V => @panic("ADD_V unimplemented"),
+      datModule.OpCode.ADD_V => {
+        const dst = statement.arg3;
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        self.mem32[dst    ] = bitCast(u32, bitCast(f32, self.mem32[lhs    ]) + bitCast(f32, self.mem32[rhs    ]));
+        self.mem32[dst + 1] = bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) + bitCast(f32, self.mem32[rhs + 1]));
+        self.mem32[dst + 2] = bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) + bitCast(f32, self.mem32[rhs + 2]));
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.SUB_F => {
         const dst = statement.arg3;
         const lhs = statement.arg1;
@@ -519,9 +580,6 @@ const VM = struct {
       datModule.OpCode.STORE_S => {
         self.mem32[statement.arg2] = self.mem32[statement.arg1];
         self.pc += 1;
-
-        var buf = [_:0]u8 { 0 } ** 255;
-        _ = std.mem.replace(u8, self.getString(self.mem32[statement.arg2]), "\n", "\\n", &buf);
         return false;
       },
       datModule.OpCode.STORE_ENT => @panic("STORE_ENT unimplemented"),
@@ -534,8 +592,22 @@ const VM = struct {
       datModule.OpCode.STOREP_FLD => @panic("STOREP_FLD unimplemented"),
       datModule.OpCode.STOREP_FNC => @panic("STOREP_FNC unimplemented"),
       // If, Not Opcode Mnemonic
-      datModule.OpCode.NOT_F => @panic("NOT_F unimplemented"),
-      datModule.OpCode.NOT_V => @panic("NOT_V unimplemented"),
+      datModule.OpCode.NOT_F => {
+        const src = statement.arg1;
+        const dst = statement.arg3;
+        self.mem32[dst] = if (self.mem32[src] == 0) bitCast(u32, @as(f32, 1)) else 0;
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.NOT_V => {
+        const vec = statement.arg1;
+        const dst = statement.arg3;
+        self.mem32[dst] = if (self.mem32[vec    ] == 0 and
+                              self.mem32[vec + 1] == 0 and
+                              self.mem32[vec + 2] == 0) bitCast(u32, @as(f32, 1)) else 0;
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.NOT_S => @panic("NOT_S unimplemented"),
       datModule.OpCode.NOT_ENT => @panic("NOT_ENT unimplemented"),
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
@@ -563,7 +635,15 @@ const VM = struct {
         return false;
       },
       // Boolean Operations Opcode Mnemonic
-      datModule.OpCode.AND => @panic("AND unimplemented"),
+      datModule.OpCode.AND => {
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        const dst = statement.arg3;
+        self.mem32[dst] = if (self.mem32[lhs] != 0 and self.mem32[rhs] != 0)
+          bitCast(u32, @as(f32, 1)) else 0;
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.OR => @panic("OR unimplemented"),
       datModule.OpCode.BITAND => {
         const dst = statement.arg3;
@@ -621,7 +701,7 @@ pub fn main() !u8 {
 
   const mapfilepath = parsedArgs.arguments.items[0];
   const buffer = misc.load(mapfilepath) catch |err| {
-    try stderr.print("error: {}, trying to open open {s}\n", .{ err, args[1] });
+    try stderr.print("error: {}, trying to open {s}\n", .{ err, mapfilepath });
     std.posix.exit(1);
   };
   defer std.posix.munmap(buffer);

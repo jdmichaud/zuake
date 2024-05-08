@@ -1,0 +1,5 @@
+cmd: --jump-to main
+file: mul_vf.dat
+exit: 0
+output:
+'400 800 1600'

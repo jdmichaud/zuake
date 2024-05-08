@@ -1,0 +1,9 @@
+cmd: --jump-to main
+file: exponentiation.dat
+exit: 0
+output:
+100
+100
+100
+100
+22026.465
