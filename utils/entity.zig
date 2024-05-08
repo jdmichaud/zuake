@@ -28,7 +28,7 @@ fn load(pathname: []const u8) ![]align(4096) const u8 {
   return buffer;
 }
 
-pub const EntityValue = struct {
+pub const EntityField = struct {
   const Self = @This();
 
   value: []const u8,
@@ -46,12 +46,12 @@ pub const EntityValue = struct {
   }
 };
 
-pub const EntityMap = std.StringHashMap(EntityValue);
+pub const Entity = std.StringHashMap(EntityField);
 
 pub const EntityList = struct {
   const Self = @This();
 
-  entities: []EntityMap,
+  entities: []Entity,
   allocator: std.mem.Allocator,
 
   pub fn init(allocator: std.mem.Allocator, entities: bspModule.Entities) !Self {
@@ -63,8 +63,8 @@ pub const EntityList = struct {
       PARSING_VALUE,
     };
 
-    var list = std.ArrayList(EntityMap).init(allocator);
-    var entity: EntityMap = undefined;
+    var list = std.ArrayList(Entity).init(allocator);
+    var entity: Entity = undefined;
     var state = State.LOOKING_FOR_ENTITY;
     var key: std.ArrayList(u8) = undefined;
     var value: std.ArrayList(u8) = undefined;
@@ -72,7 +72,7 @@ pub const EntityList = struct {
       switch (state) {
         State.LOOKING_FOR_ENTITY => {
           if (c == '{') {
-            entity = EntityMap.init(allocator);
+            entity = Entity.init(allocator);
             state = State.LOOKING_FOR_KEY;
             continue;
           } else if (!std.ascii.isWhitespace(c) and c != 0) {
@@ -111,7 +111,7 @@ pub const EntityList = struct {
         State.PARSING_VALUE => {
           if (c == '"') {
             state = State.LOOKING_FOR_KEY;
-            try entity.put(try key.toOwnedSlice(), EntityValue {
+            try entity.put(try key.toOwnedSlice(), EntityField {
               .value = try value.toOwnedSlice(),
             });
             key.deinit();
@@ -142,7 +142,7 @@ pub const EntityList = struct {
     self.* = undefined;
   }
 
-  pub fn get(self: Self, key: []const u8) ?EntityMap {
+  pub fn get(self: Self, key: []const u8) ?Entity {
     for (self.entities) |entityMap| {
       if (entityMap.get("classname")) |entityValue| {
         if (std.mem.eql(u8, entityValue.toString(), key)) {
