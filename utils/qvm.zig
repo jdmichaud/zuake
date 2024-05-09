@@ -213,6 +213,7 @@ const Builtins = struct {
 
 pub const VMOptions = struct {
   trace: bool = false,
+  memsize: usize = 1024 * 1024 * 1, // 1Mb by default
 };
 
 const VM = struct {
@@ -257,10 +258,13 @@ const VM = struct {
   options: VMOptions,
 
   pub fn init(allocator: std.mem.Allocator, options: VMOptions) !Self {
-    // We allocate a fixed amount of memory (TODO: make it configurable)
-    // We assume that the globals fit within the memory with a little room for the stack
-    const mem32 = try allocator.alloc(u32, 256 * 1024 * 1); // 1 Mb for now
-    // Keep a []32 slice around for convenience
+    // We make sure that memsize is divisible by @sizeOf(u32)
+    const memsize: usize =
+      @intFromFloat(@ceil(@as(f32, @floatFromInt(options.memsize)) / @sizeOf(u32)) * @sizeOf(u32));
+    // Allocate memory that is aligned along the u32 alignment constraints as we
+    // are going to mainly access this memory by reading and writing u32s.
+    const mem32: []u32 = try allocator.alloc(u32, memsize / @sizeOf(u32));
+    // Keep a []8 slice around for convenience
     const mem: []u8 = std.mem.sliceAsBytes(mem32);
 
     return Self{
@@ -287,15 +291,18 @@ const VM = struct {
     self.* = undefined;
   }
 
-  pub fn load(self: *Self, dat: datModule.Dat) void {
+  // Load a dat file and set the various pointers.
+  pub fn loadDat(self: *Self, dat: datModule.Dat) !void {
     // Check that the global are less than the allocated memory and reserving
     // 1K for dynamic string data and 1K for the stack.
-    std.debug.assert(dat.globals.len * @sizeOf(u32) < self.mem.len - 1024 * 2);
+    if (dat.globals.len * @sizeOf(u32) > self.mem.len - 1024 * 2) {
+      return error.NotEnoughMemory;
+    }
     // Load globals
     @memcpy(self.mem32[0..dat.globals.len], dat.globals);
     // Set boundary pointers
     self.stackOffset = std.mem.alignForward(usize, dat.globals.len, @sizeOf(u32));
-    self.sp = self.stackOffset * 4;
+    self.sp = self.stackOffset * @sizeOf(u32);
     self.fp = self.sp;
     self.dat = dat;
     var maxFieldIndex: usize = 0;
@@ -382,11 +389,11 @@ const VM = struct {
           offset += fun.argSizes[i];
         }
         // Save the the FP and the PC
-        self.write32(self.sp / 4, @intCast(self.pc));
-        self.sp += 4;
-        self.write32(self.sp / 4, @intCast(self.fp));
+        self.write32(self.sp / @sizeOf(u32), @intCast(self.pc));
+        self.sp += @sizeOf(u32);
+        self.write32(self.sp / @sizeOf(u32), @intCast(self.fp));
         self.fp = self.sp;
-        self.sp += 4;
+        self.sp += @sizeOf(u32);
         self.pc = @intCast(fun.entryPoint);
       } else {
         // No saving the PC because the builtin will not change it
@@ -493,15 +500,15 @@ const VM = struct {
           self.write32(returnAddress + 1, self.mem32[statement.arg1 + 1]);
           self.write32(returnAddress + 2, self.mem32[statement.arg1 + 2]);
         }
-        if (self.fp == self.stackOffset * 4) {
+        if (self.fp == self.stackOffset * @sizeOf(u32)) {
           // The stack is at the bottom of the memory so we are returning from main
           return true;
         }
         // Restore the the FP and the PC
         self.sp = self.fp;
-        self.fp = self.mem32[self.sp / 4];
-        self.sp -= 4;
-        self.pc = self.mem32[self.sp / 4];
+        self.fp = self.mem32[self.sp / @sizeOf(u32)];
+        self.sp -= @sizeOf(u32);
+        self.pc = self.mem32[self.sp / @sizeOf(u32)];
         self.pc += 1;
         return false;
       },
@@ -821,7 +828,7 @@ pub fn main() !u8 {
 
   var vm = try VM.init(allocator, .{ .trace = parsedArgs.getSwitch("trace") });
   defer vm.deinit();
-  vm.load(dat);
+  try vm.loadDat(dat);
   if (parsedArgs.getSwitch("jump-to")) {
     try vm.jumpToFunction(parsedArgs.getOption([]const u8, "jump-to") orelse "main");
   }
