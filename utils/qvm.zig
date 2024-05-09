@@ -226,8 +226,8 @@ const VM = struct {
   //  strings
   //  -------------------     0------------------
   //  globals (ro)             globals (rw)
-  //  -------------------      ------------------ <- heapOffset
-  //  statements               dynamic strings    <- hp somewhere in between
+  //  -------------------      ------------------ <- stringsOffset
+  //  statements               dynamic strings    <- stringsPointer somewhere in between
   //  -------------------      ------------------ <- stackLimit
   //  fields                   stack              <- sp somewhere
   //  -------------------      ------------------
@@ -239,10 +239,10 @@ const VM = struct {
   // Stack Pointer
   // Index in mem32 (so incremented by 1)
   sp: usize,
-  // Dynamic data
-  heapOffset: usize,
-  // Heap pointer to the next available dynamic memory address available
-  hp: usize,
+  // Dynamic string data
+  stringsOffset: usize,
+  // Pointer to the next available dynamic string memory
+  stringsPointer: usize,
   // Upper limit of the stack. If we reach it, it means the stack is overflown.
   stacklimit: usize,
   // Program Counter
@@ -273,8 +273,8 @@ const VM = struct {
       .mem = mem,
       .mem32 = mem32,
       .sp = sp,
-      .heapOffset = 0,
-      .hp = 0,
+      .stringsOffset = 0,
+      .stringsPointer = 0,
       .stacklimit = 0,
       .pc = 0,
       .entities = std.ArrayList(entityModule.Entity).init(allocator),
@@ -299,8 +299,8 @@ const VM = struct {
     // Load globals
     @memcpy(self.mem32[0..dat.globals.len], dat.globals);
     // Set boundary pointers
-    self.heapOffset = dat.globals.len;
-    self.hp = dat.globals.len;
+    self.stringsOffset = dat.globals.len;
+    self.stringsPointer = dat.globals.len;
     self.stacklimit = dat.globals.len * @sizeOf(u32) + 1024;
     self.dat = dat;
     var maxFieldIndex: usize = 0;
@@ -334,8 +334,8 @@ const VM = struct {
 
   // Push a string to the dynamic string pile
   pub fn pushString(self: *Self, comptime fmt: []const u8, args: anytype) !usize {
-    const pointer = self.hp;
-    self.hp += (try std.fmt.bufPrintZ(self.mem[self.hp * @sizeOf(u32)..], fmt, args)).len;
+    const pointer = self.stringsPointer;
+    self.stringsPointer += (try std.fmt.bufPrintZ(self.mem[self.stringsPointer * @sizeOf(u32)..], fmt, args)).len;
     // We need to return an address that is beyond the read only string
     // address of the DAT file so that we can distinguish were the string
     // is stored.
@@ -380,7 +380,7 @@ const VM = struct {
         // Save the the string pointer and the PC
         self.mem32[self.sp] = @intCast(self.pc);
         self.sp -= 1;
-        self.mem32[self.sp] = @intCast(self.hp);
+        self.mem32[self.sp] = @intCast(self.stringsPointer);
         self.sp -= 1;
         self.pc = @intCast(fun.entryPoint);
       } else {
@@ -493,7 +493,7 @@ const VM = struct {
         }
         // Restore the the string pointer and the PC
         self.sp += 1;
-        self.hp = self.mem32[self.sp];
+        self.stringsPointer = self.mem32[self.sp];
         self.sp += 1;
         self.pc = self.mem32[self.sp];
         self.pc += 1;
