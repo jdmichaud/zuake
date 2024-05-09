@@ -88,7 +88,7 @@ const Builtins = struct {
       13 => @panic("vectoyaw is not yet implemented"),
       14 => { // spawn
         try vm.entities.append(entityModule.Entity.init(vm.allocator));
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = intCast(u32, vm.entities.items.len - 1);
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), intCast(u32, vm.entities.items.len - 1));
       },
       15 => @panic("remove is not yet implemented"),
       16 => @panic("traceline is not yet implemented"),
@@ -115,14 +115,14 @@ const Builtins = struct {
       26 => { // ftos
         const f = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
         const strPointer = try vm.pushString("{d}", .{ f });
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(strPointer);
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), @intCast(strPointer));
       },
       27 => { // vtos
         const v_x = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)    ]);
         const v_y = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1) + 1]);
         const v_z = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1) + 2]);
         const strPointer = try vm.pushString("'{d} {d} {d}'", .{ v_x, v_y, v_z });
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = @intCast(strPointer);
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), @intCast(strPointer));
       },
       28 => { // coredump
         try stderr.print("warning: coredump: not connected to any entities yet\n", .{});
@@ -156,7 +156,7 @@ const Builtins = struct {
       59 => @panic("WriteEntity is not yet implemented"),
       62 => { // sqrt
         const result = std.math.sqrt(bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)]));
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = bitCast(u32, result);
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), bitCast(u32, result));
       },
       67 => @panic("movetogoal is not yet implemented"),
       68 => { // precache_file
@@ -165,7 +165,7 @@ const Builtins = struct {
         try stderr.print("warning: precache_file {s} ignored\n", .{ path });
         // Apparently, this function does nothing.
         // Returns the string pass to it.
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
       },
       69 => @panic("makestatic is not yet implemented"),
       70 => @panic("changelevel is not yet implemented"),
@@ -180,14 +180,14 @@ const Builtins = struct {
         try stderr.print("warning: precache_file2 {s} ignored\n", .{ path });
         // Apparently, this function does nothing.
         // Returns the string pass to it.
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
       },
       78 => @panic("setspawnparms is not yet implemented"),
       85 => @panic("stov is not yet implemented"),
       97 => { // pow
         const base = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
         const exp = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter2)]);
-        vm.mem32[@intFromEnum(CallRegisters.ReturnValue)] = bitCast(u32, std.math.pow(f32, base, exp));
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), bitCast(u32, std.math.pow(f32, base, exp)));
       },
       99 => { // print
         var str = [_]u8{ 0 } ** 1024;
@@ -226,25 +226,23 @@ const VM = struct {
   //  strings
   //  -------------------     0------------------
   //  globals (ro)             globals (rw)
-  //  -------------------      ------------------ <- stringsOffset
-  //  statements               dynamic strings    <- stringsPointer somewhere in between
-  //  -------------------      ------------------ <- stackLimit
-  //  fields                   stack              <- sp somewhere
+  //  -------------------      ------------------ <- stackOffset
+  //  statements               stack              (pc, fp saved here)
+  //  -------------------                         <- fp somewhere
+  //  fields                                      <- sp somewhere
   //  -------------------      ------------------
-  //  functions
-  //  -------------------
+  //  functions                heap (TBD)
+  //  -------------------      ------------------
   mem: []u8,
   // Same as mem but in 32bits for convenience
   mem32: []u32,
   // Stack Pointer
-  // Index in mem32 (so incremented by 1)
+  // Index in mem (so incremented by @sizeOf(u32)). Must always remain align on @sizeOf(u32).
   sp: usize,
-  // Dynamic string data
-  stringsOffset: usize,
-  // Pointer to the next available dynamic string memory
-  stringsPointer: usize,
-  // Upper limit of the stack. If we reach it, it means the stack is overflown.
-  stacklimit: usize,
+  // Beginning of the stack (align @sizeOf(u32))
+  stackOffset: usize,
+  // Frame pointer. Points to the beginning of the frame (after the PC and FP is saved)
+  fp: usize,
   // Program Counter
   // This is not an offset in memory but an index in the statement list
   pc: usize,
@@ -264,18 +262,15 @@ const VM = struct {
     const mem32 = try allocator.alloc(u32, 256 * 1024 * 1); // 1 Mb for now
     // Keep a []32 slice around for convenience
     const mem: []u8 = std.mem.sliceAsBytes(mem32);
-    // Stacks starts at the end and goes down
-    const sp = mem32.len - 1;
 
     return Self{
       .allocator = allocator,
       .dat = null,
       .mem = mem,
       .mem32 = mem32,
-      .sp = sp,
-      .stringsOffset = 0,
-      .stringsPointer = 0,
-      .stacklimit = 0,
+      .sp = 0,
+      .fp = 0,
+      .stackOffset = 0,
       .pc = 0,
       .entities = std.ArrayList(entityModule.Entity).init(allocator),
       .maxFieldIndex = 0,
@@ -299,9 +294,9 @@ const VM = struct {
     // Load globals
     @memcpy(self.mem32[0..dat.globals.len], dat.globals);
     // Set boundary pointers
-    self.stringsOffset = dat.globals.len;
-    self.stringsPointer = dat.globals.len;
-    self.stacklimit = dat.globals.len * @sizeOf(u32) + 1024;
+    self.stackOffset = std.mem.alignForward(usize, dat.globals.len, @sizeOf(u32));
+    self.sp = self.stackOffset * 4;
+    self.fp = self.sp;
     self.dat = dat;
     var maxFieldIndex: usize = 0;
     for (dat.fields) |field| {
@@ -309,6 +304,14 @@ const VM = struct {
     }
     maxFieldIndex += 1; // To simplify, ensure that it's never 0
     self.maxFieldIndex = maxFieldIndex;
+  }
+
+  pub inline fn read32(self: Self, addr: usize) u32 {
+    return self.mem32[addr];
+  }
+
+  pub inline fn write32(self: Self, addr: usize, value: u32) void {
+    self.mem32[addr] = value;
   }
 
   pub fn jumpToFunction(self: *Self, functionName: []const u8) !void {
@@ -334,8 +337,9 @@ const VM = struct {
 
   // Push a string to the dynamic string pile
   pub fn pushString(self: *Self, comptime fmt: []const u8, args: anytype) !usize {
-    const pointer = self.stringsPointer;
-    self.stringsPointer += (try std.fmt.bufPrintZ(self.mem[self.stringsPointer * @sizeOf(u32)..], fmt, args)).len;
+    const pointer = self.sp;
+    const written = (try std.fmt.bufPrintZ(self.mem[self.sp..], fmt, args)).len;
+    self.sp = std.mem.alignForward(usize, self.sp + written, @sizeOf(u32));
     // We need to return an address that is beyond the read only string
     // address of the DAT file so that we can distinguish were the string
     // is stored.
@@ -352,7 +356,7 @@ const VM = struct {
       return self.dat.?.getString(offset);
     }
     // We still need to subtract the string boundary.
-    return std.mem.span(@as([*:0]const u8, @ptrCast(self.mem32[offset - datStringBoundary..])));
+    return std.mem.span(@as([*:0]const u8, @ptrCast(self.mem[offset - datStringBoundary..])));
   }
 
   pub fn registerFile(self: *Self, path: []const u8, data: []const u8) void {
@@ -377,11 +381,12 @@ const VM = struct {
           );
           offset += fun.argSizes[i];
         }
-        // Save the the string pointer and the PC
-        self.mem32[self.sp] = @intCast(self.pc);
-        self.sp -= 1;
-        self.mem32[self.sp] = @intCast(self.stringsPointer);
-        self.sp -= 1;
+        // Save the the FP and the PC
+        self.write32(self.sp / 4, @intCast(self.pc));
+        self.sp += 4;
+        self.write32(self.sp / 4, @intCast(self.fp));
+        self.fp = self.sp;
+        self.sp += 4;
         self.pc = @intCast(fun.entryPoint);
       } else {
         // No saving the PC because the builtin will not change it
@@ -452,13 +457,14 @@ const VM = struct {
 
   inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
     if (self.options.trace) {
-      try stdout.print("{s: <9} {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] pc {} sp 0x{x}\n", .{
+      try stdout.print("{s: <9} {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] pc {} sp 0x{x} fp 0x{x}\n", .{
         @tagName(statement.opcode),
         statement.arg1, bitCast(f32, self.mem32[statement.arg1]),
         statement.arg2, bitCast(f32, self.mem32[statement.arg2]),
         statement.arg3, bitCast(f32, self.mem32[statement.arg3]),
         self.pc,
         self.sp,
+        self.fp,
       });
     }
 
@@ -475,7 +481,7 @@ const VM = struct {
         const entityPtr = statement.arg1;
         const fieldIndex = statement.arg2;
         const dst = statement.arg3;
-        self.mem32[dst] = try self.getFieldPtr(err, self.mem32[entityPtr], self.mem32[fieldIndex]);
+        self.write32(dst, try self.getFieldPtr(err, self.mem32[entityPtr], self.mem32[fieldIndex]));
         self.pc += 1;
         return false;
       },
@@ -483,19 +489,19 @@ const VM = struct {
         const src = statement.arg1;
         if (src != 0) {
           const returnAddress = @intFromEnum(CallRegisters.ReturnValue);
-          self.mem32[returnAddress    ] = self.mem32[statement.arg1    ];
-          self.mem32[returnAddress + 1] = self.mem32[statement.arg1 + 1];
-          self.mem32[returnAddress + 2] = self.mem32[statement.arg1 + 2];
+          self.write32(returnAddress    , self.mem32[statement.arg1    ]);
+          self.write32(returnAddress + 1, self.mem32[statement.arg1 + 1]);
+          self.write32(returnAddress + 2, self.mem32[statement.arg1 + 2]);
         }
-        if (self.sp == self.mem32.len - 1) {
+        if (self.fp == self.stackOffset * 4) {
           // The stack is at the bottom of the memory so we are returning from main
           return true;
         }
-        // Restore the the string pointer and the PC
-        self.sp += 1;
-        self.stringsPointer = self.mem32[self.sp];
-        self.sp += 1;
-        self.pc = self.mem32[self.sp];
+        // Restore the the FP and the PC
+        self.sp = self.fp;
+        self.fp = self.mem32[self.sp / 4];
+        self.sp -= 4;
+        self.pc = self.mem32[self.sp / 4];
         self.pc += 1;
         return false;
       },
@@ -504,7 +510,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) * bitCast(f32, self.mem32[rhs]));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) * bitCast(f32, self.mem32[rhs])));
         self.pc += 1;
         return false;
       },
@@ -512,9 +518,9 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs    ]) * bitCast(f32, self.mem32[rhs    ]))
+        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs    ]) * bitCast(f32, self.mem32[rhs    ]))
                         + bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) * bitCast(f32, self.mem32[rhs + 1]))
-                        + bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) * bitCast(f32, self.mem32[rhs + 2]));
+                        + bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) * bitCast(f32, self.mem32[rhs + 2])));
         self.pc += 1;
         return false;
       },
@@ -523,9 +529,9 @@ const VM = struct {
         const lhs = statement.arg1;
         const rhs = statement.arg2;
         const f = bitCast(f32, self.mem32[lhs]);
-        self.mem32[dst    ] = bitCast(u32, f * bitCast(f32, self.mem32[rhs    ]));
-        self.mem32[dst + 1] = bitCast(u32, f * bitCast(f32, self.mem32[rhs + 1]));
-        self.mem32[dst + 2] = bitCast(u32, f * bitCast(f32, self.mem32[rhs + 2]));
+        self.write32(dst    , bitCast(u32, f * bitCast(f32, self.mem32[rhs    ])));
+        self.write32(dst + 1, bitCast(u32, f * bitCast(f32, self.mem32[rhs + 1])));
+        self.write32(dst + 2, bitCast(u32, f * bitCast(f32, self.mem32[rhs + 2])));
         self.pc += 1;
         return false;
       },
@@ -534,9 +540,9 @@ const VM = struct {
         const lhs = statement.arg1;
         const rhs = statement.arg2;
         const f = bitCast(f32, self.mem32[rhs]);
-        self.mem32[dst    ] = bitCast(u32, f * bitCast(f32, self.mem32[lhs    ]));
-        self.mem32[dst + 1] = bitCast(u32, f * bitCast(f32, self.mem32[lhs + 1]));
-        self.mem32[dst + 2] = bitCast(u32, f * bitCast(f32, self.mem32[lhs + 2]));
+        self.write32(dst    , bitCast(u32, f * bitCast(f32, self.mem32[lhs    ])));
+        self.write32(dst + 1, bitCast(u32, f * bitCast(f32, self.mem32[lhs + 1])));
+        self.write32(dst + 2, bitCast(u32, f * bitCast(f32, self.mem32[lhs + 2])));
         self.pc += 1;
         return false;
       },
@@ -544,7 +550,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) / bitCast(f32, self.mem32[rhs]));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) / bitCast(f32, self.mem32[rhs])));
         self.pc += 1;
         return false;
       },
@@ -552,7 +558,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) + bitCast(f32, self.mem32[rhs]));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) + bitCast(f32, self.mem32[rhs])));
         self.pc += 1;
         return false;
       },
@@ -560,9 +566,9 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst    ] = bitCast(u32, bitCast(f32, self.mem32[lhs    ]) + bitCast(f32, self.mem32[rhs    ]));
-        self.mem32[dst + 1] = bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) + bitCast(f32, self.mem32[rhs + 1]));
-        self.mem32[dst + 2] = bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) + bitCast(f32, self.mem32[rhs + 2]));
+        self.write32(dst    , bitCast(u32, bitCast(f32, self.mem32[lhs    ]) + bitCast(f32, self.mem32[rhs    ])));
+        self.write32(dst + 1, bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) + bitCast(f32, self.mem32[rhs + 1])));
+        self.write32(dst + 2, bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) + bitCast(f32, self.mem32[rhs + 2])));
         self.pc += 1;
         return false;
       },
@@ -570,7 +576,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst] = bitCast(u32, bitCast(f32, self.mem32[lhs]) - bitCast(f32, self.mem32[rhs]));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) - bitCast(f32, self.mem32[rhs])));
         self.pc += 1;
         return false;
       },
@@ -578,18 +584,18 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.mem32[dst    ] = bitCast(u32, bitCast(f32, self.mem32[lhs    ]) - bitCast(f32, self.mem32[rhs    ]));
-        self.mem32[dst + 1] = bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) - bitCast(f32, self.mem32[rhs + 1]));
-        self.mem32[dst + 2] = bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) - bitCast(f32, self.mem32[rhs + 2]));
+        self.write32(dst    , bitCast(u32, bitCast(f32, self.mem32[lhs    ]) - bitCast(f32, self.mem32[rhs    ])));
+        self.write32(dst + 1, bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) - bitCast(f32, self.mem32[rhs + 1])));
+        self.write32(dst + 2, bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) - bitCast(f32, self.mem32[rhs + 2])));
         self.pc += 1;
         return false;
       },
       // Comparison Opcode Mnemonic
       datModule.OpCode.EQ_F => {
         if (self.mem32[statement.arg1] == self.mem32[statement.arg2]) {
-          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
-          self.mem32[statement.arg3] = 0;
+          self.write32(statement.arg3, 0);
         }
         self.pc += 1;
         return false;
@@ -605,49 +611,49 @@ const VM = struct {
       datModule.OpCode.NE_FNC => @panic("NE_FNC unimplemented"),
       datModule.OpCode.LE => {
         if (self.mem32[statement.arg1] <= self.mem32[statement.arg2]) {
-          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
-          self.mem32[statement.arg3] = 0;
+          self.write32(statement.arg3, 0);
         }
         self.pc += 1;
         return false;
       },
       datModule.OpCode.GE => {
         if (self.mem32[statement.arg1] >= self.mem32[statement.arg2]) {
-          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
-          self.mem32[statement.arg3] = 0;
+          self.write32(statement.arg3, 0);
         }
         self.pc += 1;
         return false;
       },
       datModule.OpCode.LT => {
         if (self.mem32[statement.arg1] < self.mem32[statement.arg2]) {
-          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
-          self.mem32[statement.arg3] = 0;
+          self.write32(statement.arg3, 0);
         }
         self.pc += 1;
         return false;
       },
       datModule.OpCode.GT => {
         if (self.mem32[statement.arg1] > self.mem32[statement.arg2]) {
-          self.mem32[statement.arg3] = bitCast(u32, @as(f32, @floatFromInt(1)));
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
-          self.mem32[statement.arg3] = 0;
+          self.write32(statement.arg3, 0);
         }
         self.pc += 1;
         return false;
       },
       // Loading / Storing Opcode Mnemonic
-      datModule.OpCode.LOAD_F => { // @panic("LOAD_F unimplemented"),
+      datModule.OpCode.LOAD_F => {
         const ent = statement.arg1;
         const fieldIndex = statement.arg2;
         const dst = statement.arg3;
 
         const field = self.getFieldByIndex(self.mem32[fieldIndex]).?;
         const fieldName = self.getString(field.nameOffset);
-        self.mem32[dst] = bitCast(u32, try self.entities.items[self.mem32[ent]].get(fieldName).?.toFloat());
+        self.write32(dst, bitCast(u32, try self.entities.items[self.mem32[ent]].get(fieldName).?.toFloat()));
         self.pc += 1;
         return false;
       },
@@ -661,16 +667,16 @@ const VM = struct {
       datModule.OpCode.STORE_ENT,
       datModule.OpCode.STORE_FLD,
       datModule.OpCode.STORE_FNC => {
-        self.mem32[statement.arg2] = self.mem32[statement.arg1];
+        self.write32(statement.arg2, self.mem32[statement.arg1]);
         self.pc += 1;
         return false;
       },
       datModule.OpCode.STORE_V => {
         const src = statement.arg1;
         const dst = statement.arg2;
-        self.mem32[dst    ] = self.mem32[src    ];
-        self.mem32[dst + 1] = self.mem32[src + 1];
-        self.mem32[dst + 2] = self.mem32[src + 2];
+        self.write32(dst    , self.mem32[src    ]);
+        self.write32(dst + 1, self.mem32[src + 1]);
+        self.write32(dst + 2, self.mem32[src + 2]);
         self.pc += 1;
         return false;
       },
@@ -693,16 +699,16 @@ const VM = struct {
       datModule.OpCode.NOT_F => {
         const src = statement.arg1;
         const dst = statement.arg3;
-        self.mem32[dst] = if (self.mem32[src] == 0) bitCast(u32, @as(f32, 1)) else 0;
+        self.write32(dst, if (self.mem32[src] == 0) bitCast(u32, @as(f32, 1)) else 0);
         self.pc += 1;
         return false;
       },
       datModule.OpCode.NOT_V => {
         const vec = statement.arg1;
         const dst = statement.arg3;
-        self.mem32[dst] = if (self.mem32[vec    ] == 0 and
+        self.write32(dst, if (self.mem32[vec    ] == 0 and
                               self.mem32[vec + 1] == 0 and
-                              self.mem32[vec + 2] == 0) bitCast(u32, @as(f32, 1)) else 0;
+                              self.mem32[vec + 2] == 0) bitCast(u32, @as(f32, 1)) else 0);
         self.pc += 1;
         return false;
       },
@@ -737,8 +743,8 @@ const VM = struct {
         const lhs = statement.arg1;
         const rhs = statement.arg2;
         const dst = statement.arg3;
-        self.mem32[dst] = if (self.mem32[lhs] != 0 and self.mem32[rhs] != 0)
-          bitCast(u32, @as(f32, 1)) else 0;
+        self.write32(dst, if (self.mem32[lhs] != 0 and self.mem32[rhs] != 0)
+          bitCast(u32, @as(f32, 1)) else 0);
         self.pc += 1;
         return false;
       },
@@ -753,7 +759,7 @@ const VM = struct {
         // i32 floatcast f32
         // f32 bitcast to
         const result = intCast(i32, bitCast(f32, self.mem32[lhs])) & intCast(i32, bitCast(f32, self.mem32[rhs]));
-        self.mem32[dst] = bitCast(u32, @as(f32, @floatFromInt(result)));
+        self.write32(dst, bitCast(u32, @as(f32, @floatFromInt(result))));
         self.pc += 1;
         return false;
       },
@@ -763,7 +769,7 @@ const VM = struct {
         const rhs = statement.arg2;
 
         const result = intCast(i32, bitCast(f32, self.mem32[lhs])) | intCast(i32, bitCast(f32, self.mem32[rhs]));
-        self.mem32[dst] = bitCast(u32, @as(f32, @floatFromInt(result)));
+        self.write32(dst, bitCast(u32, @as(f32, @floatFromInt(result))));
         self.pc += 1;
         return false;
       },
@@ -823,13 +829,13 @@ pub fn main() !u8 {
   var err = RuntimeError{};
   while (true) {
     const done = vm.execute(&err) catch |e| {
-      switch (e) {
+      return switch (e) {
         error.RuntimeError => {
           try stderr.print("error: {s}\n", .{ err.message });
           std.posix.exit(1);
         },
         else => return e,
-      }
+      };
     };
     if (done) break;
   }
