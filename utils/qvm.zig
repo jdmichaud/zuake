@@ -590,13 +590,75 @@ const VM = struct {
         self.pc += 1;
         return false;
       },
-      datModule.OpCode.EQ_V => @panic("EQ_V unimplemented"),
-      datModule.OpCode.EQ_S => @panic("EQ_S unimplemented"),
+      datModule.OpCode.EQ_V => {
+        if (self.mem32[statement.arg1    ] == self.mem32[statement.arg2    ] and
+            self.mem32[statement.arg1 + 1] == self.mem32[statement.arg2 + 1] and
+            self.mem32[statement.arg1 + 2] == self.mem32[statement.arg2 + 2]) {
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
+        } else {
+          self.write32(statement.arg3, 0);
+        }
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.EQ_S => {
+        var i: usize = 0;
+        while (self.mem[statement.arg1 * @sizeOf(u32) + i] != 0 and
+               self.mem[statement.arg2 * @sizeOf(u32) + i] != 0 and
+               self.mem[statement.arg1 * @sizeOf(u32) + i] == self.mem[statement.arg2 * @sizeOf(u32) + i]) {
+          i += 1;
+        }
+
+        if (self.mem[statement.arg1 * @sizeOf(u32) + i] == 0 and
+            self.mem[statement.arg2 * @sizeOf(u32) + i] == 0) {
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
+        } else {
+          self.write32(statement.arg3, 0);
+        }
+
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.EQ_E => @panic("EQ_E unimplemented"),
       datModule.OpCode.EQ_FNC => @panic("EQ_FNC unimplemented"),
-      datModule.OpCode.NE_F => @panic("NE_F unimplemented"),
-      datModule.OpCode.NE_V => @panic("NE_V unimplemented"),
-      datModule.OpCode.NE_S => @panic("NE_S unimplemented"),
+      datModule.OpCode.NE_F => {  // untested
+        if (self.mem32[statement.arg1] == self.mem32[statement.arg2]) {
+          self.write32(statement.arg3, 0);
+        } else {
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
+        }
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.NE_V => {  // untested
+        if (self.mem32[statement.arg1    ] == self.mem32[statement.arg2    ] and
+            self.mem32[statement.arg1 + 1] == self.mem32[statement.arg2 + 1] and
+            self.mem32[statement.arg1 + 2] == self.mem32[statement.arg2 + 2]) {
+          self.write32(statement.arg3, 0);
+        } else {
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
+        }
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.NE_S => {  // untested
+        var i: usize = 0;
+        while (self.mem[statement.arg1 * @sizeOf(u32) + i] != 0 and
+               self.mem[statement.arg2 * @sizeOf(u32) + i] != 0 and
+               self.mem[statement.arg1 * @sizeOf(u32) + i] == self.mem[statement.arg2 * @sizeOf(u32) + i]) {
+          i += 1;
+        }
+
+        if (self.mem[statement.arg1 * @sizeOf(u32) + i] == 0 and
+            self.mem[statement.arg2 * @sizeOf(u32) + i] == 0) {
+          self.write32(statement.arg3, 0);
+        } else {
+          self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
+        }
+
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.NE_E => @panic("NE_E unimplemented"),
       datModule.OpCode.NE_FNC => @panic("NE_FNC unimplemented"),
       datModule.OpCode.LE => {
@@ -724,7 +786,14 @@ const VM = struct {
       datModule.OpCode.NOT_S => @panic("NOT_S unimplemented"),
       datModule.OpCode.NOT_ENT => @panic("NOT_ENT unimplemented"),
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
-      datModule.OpCode.IF => @panic("IF unimplemented"),
+      datModule.OpCode.IF => { // untested
+        if (self.mem32[statement.arg1] != 0) {
+          self.pc += statement.arg2;
+        } else {
+          self.pc += 1;
+        }
+        return false;
+      },
       datModule.OpCode.IFNOT => {
         if (self.mem32[statement.arg1] == 0) {
           self.pc += statement.arg2;
@@ -757,7 +826,15 @@ const VM = struct {
         self.pc += 1;
         return false;
       },
-      datModule.OpCode.OR => @panic("OR unimplemented"),
+      datModule.OpCode.OR => { // untested
+        const lhs = statement.arg1;
+        const rhs = statement.arg2;
+        const dst = statement.arg3;
+        self.write32(dst, if (self.mem32[lhs] != 0 or self.mem32[rhs] != 0)
+          bitCast(u32, @as(f32, 1)) else 0);
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.BITAND => {
         const dst = statement.arg3;
         const lhs = statement.arg1;

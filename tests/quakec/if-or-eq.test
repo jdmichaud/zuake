@@ -1,0 +1,7 @@
+cmd: --jump-to main
+file: if-or-eq.dat
+exit: 0
+output:
+simple equality OK
+or operator OK
+string comparison OK
