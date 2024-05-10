@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Compile the examples (need gmqcc in the path):
+# ls *.qc | xargs -n1 -i bash -c 'gmqcc -std=gmqcc -O0 "$1" -o "${1%.qc}.dat"' - '{}'
+
 if [ $# -ne 1 ]
 then
   echo "error: expecting the path to qvm binary"
