@@ -316,6 +316,11 @@ const VM = struct {
     self.maxFieldIndex = maxFieldIndex;
   }
 
+  pub fn loadEntities(self: *Self, entities: []entityModule.Entity) !void {
+    _ = self;
+    _ = entities;
+  }
+
   pub inline fn read32(self: Self, addr: usize) u32 {
     return self.mem32[addr];
   }
@@ -632,8 +637,10 @@ const VM = struct {
       },
       // Loading / Storing Opcode Mnemonic
       datModule.OpCode.LOAD_F,
-      datModule.OpCode.LOAD_V,
-      datModule.OpCode.LOAD_S => {
+      datModule.OpCode.LOAD_S,
+      datModule.OpCode.LOAD_ENT,
+      datModule.OpCode.LOAD_FLD,
+      datModule.OpCode.LOAD_FNC => {
         const entityRef = statement.arg1;
         const fieldRef = statement.arg2;
         const dst = statement.arg3;
@@ -648,9 +655,23 @@ const VM = struct {
         self.pc += 1;
         return false;
       },
-      datModule.OpCode.LOAD_ENT => @panic("LOAD_ENT unimplemented"),
-      datModule.OpCode.LOAD_FLD => @panic("LOAD_FLD unimplemented"),
-      datModule.OpCode.LOAD_FNC => @panic("LOAD_FNC unimplemented"),
+      datModule.OpCode.LOAD_V => {
+        const entityRef = statement.arg1;
+        const fieldRef = statement.arg2;
+        const dst = statement.arg3;
+
+        const entityIndex = self.mem32[entityRef];
+        const fieldIndex = self.mem32[fieldRef];
+
+        const fieldPtr = try self.getFieldPtr(err, entityIndex, fieldIndex);
+
+        self.write32(dst    , self.mem32[fieldPtr    ]);
+        self.write32(dst + 1, self.mem32[fieldPtr + 1]);
+        self.write32(dst + 2, self.mem32[fieldPtr + 2]);
+
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.STORE_F,
       datModule.OpCode.STORE_S,
       datModule.OpCode.STORE_ENT,
@@ -670,7 +691,11 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.STOREP_S,
-      datModule.OpCode.STOREP_F => {
+      datModule.OpCode.STOREP_F,
+      datModule.OpCode.STOREP_V,
+      datModule.OpCode.STOREP_ENT,
+      datModule.OpCode.STOREP_FLD,
+      datModule.OpCode.STOREP_FNC => {
         const src = statement.arg1;
         const fieldPtr = statement.arg2;
 
@@ -679,10 +704,6 @@ const VM = struct {
         self.pc += 1;
         return false;
       },
-      datModule.OpCode.STOREP_V => @panic("STOREP_V unimplemented"),
-      datModule.OpCode.STOREP_ENT => @panic("STOREP_ENT unimplemented"),
-      datModule.OpCode.STOREP_FLD => @panic("STOREP_FLD unimplemented"),
-      datModule.OpCode.STOREP_FNC => @panic("STOREP_FNC unimplemented"),
       // If, Not Opcode Mnemonic
       datModule.OpCode.NOT_F => {
         const src = statement.arg1;

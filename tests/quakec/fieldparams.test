@@ -1,0 +1,6 @@
+cmd: --jump-to main
+file: fieldparams.dat
+exit: 0
+output:
+bar
+foo
