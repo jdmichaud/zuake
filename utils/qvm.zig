@@ -767,7 +767,8 @@ const VM = struct {
         return false;
       },
       // If, Not Opcode Mnemonic
-      datModule.OpCode.NOT_F => {
+      datModule.OpCode.NOT_F,
+      datModule.OpCode.NOT_ENT => {
         const src = statement.arg1;
         const dst = statement.arg3;
         self.write32(dst, if (self.mem32[src] == 0) bitCast(u32, @as(f32, 1)) else 0);
@@ -784,7 +785,6 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.NOT_S => @panic("NOT_S unimplemented"),
-      datModule.OpCode.NOT_ENT => @panic("NOT_ENT unimplemented"),
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
       datModule.OpCode.IF => { // untested
         if (self.mem32[statement.arg1] != 0) {
