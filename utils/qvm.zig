@@ -77,6 +77,17 @@ const Entity = packed struct {
 };
 
 const Builtins = struct {
+  pub fn spawn(vm: *VM, index: u32, argc: u32) !u32 {
+    _ = argc;
+    _ = index;
+    const allocator = vm.heapAllocator.allocator();
+    const entity = try allocator.create(Entity);
+    entity.data = (try allocator.alloc(u32, vm.maxFieldIndex + 1)).ptr;
+    const entityIndex = (@intFromPtr(entity) - @intFromPtr(vm.mem.ptr)) / @sizeOf(u32);
+    const addr = intCast(u32, vm.translateEntToVM(entityIndex));
+    return addr;
+  }
+
   pub fn call(vm: *VM, index: u32, argc: u32) !void {
     switch (index) {
       1 => @panic("makevectors is not yet implemented"),
@@ -92,11 +103,7 @@ const Builtins = struct {
       12 => @panic("vlen is not yet implemented"),
       13 => @panic("vectoyaw is not yet implemented"),
       14 => { // spawn
-        const allocator = vm.heapAllocator.allocator();
-        const entity = try allocator.create(Entity);
-        entity.data = (try allocator.alloc(u32, vm.maxFieldIndex + 1)).ptr;
-        const entityIndex = (@intFromPtr(entity) - @intFromPtr(vm.mem.ptr)) / @sizeOf(u32);
-        vm.write32(@intFromEnum(CallRegisters.ReturnValue), intCast(u32, entityIndex));
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), try spawn(vm, index, argc));
       },
       15 => @panic("remove is not yet implemented"),
       16 => @panic("traceline is not yet implemented"),
@@ -238,8 +245,10 @@ const VM = struct {
   //  -------------------                         <- fp somewhere
   //  fields                                      <- sp somewhere
   //  -------------------      ------------------
-  //  functions                heap (TBD)
-  //  -------------------      ------------------
+  //                                              <-  entity X's fields
+  //                                              <- entity X
+  //  functions                heap               <-  world's fields
+  //  -------------------      ------------------ <- world
   mem: []u8,
   // Same as mem but in 32bits for convenience
   mem32: []u32,
@@ -261,6 +270,8 @@ const VM = struct {
   maxFieldIndex: usize,
   // Heap allocator
   heapAllocator: rfba.ReverseFixedBufferAllocator,
+  // The world entity
+  world: u32,
   // Options provided at creation
   options: VMOptions,
 
@@ -286,6 +297,7 @@ const VM = struct {
       .pc = 0,
       .maxFieldIndex = 0,
       .heapAllocator = rfba.ReverseFixedBufferAllocator.init(mem),
+      .world = intCast(u32, mem32.len), // If no BSP loaded, world is the end of the memory
       .options = options,
     };
   }
@@ -322,12 +334,64 @@ const VM = struct {
     _ = entities;
   }
 
+  // The first entity automatically created.
+  // world is special in a sense that its address is 0.
+  // Any function returning en entity will return world to signify no entity returned.
+  // Using world as a condition will then fail:
+  // ```qc
+  //   const e = findEntity();
+  //   if (e == world) {
+  //     print("no entity found");
+  //   }
+  // ```
+  pub fn createWorld(self: *Self) void {
+    self.world = Builtins.spawn(self, 0, 0);
+  }
+
+  // Accessors to regular memory (globals, strings, etc...)
   pub inline fn read32(self: Self, addr: usize) u32 {
     return self.mem32[addr];
   }
 
   pub inline fn write32(self: Self, addr: usize, value: u32) void {
     self.mem32[addr] = value;
+  }
+
+  // Translate from entity address to VM address
+  // This allows the VM to see entities in a different address space than they
+  // really are.
+  pub inline fn translateEntToVM(self: Self, addr: usize) usize {
+    return self.world - addr;
+  }
+
+  pub inline fn translateVMToEnt(self: Self, addr: usize) usize {
+    return self.world - addr;
+  }
+
+  // Accessors to entity memory
+  pub inline fn read32ent(self: Self, addr: usize) u32 {
+    return self.mem32[self.translateVMToEnt(addr)];
+  }
+
+  pub inline fn write32ent(self: Self, addr: usize, value: u32) void {
+    self.mem32[self.translateVMToEnt(addr)] = value;
+  }
+
+  // From a entityIndex (just a number really) and fieldIndex construct an
+  // opaque number that will be used to identify this particular field of this
+  // particular struct.
+  pub fn getFieldPtr(self: Self, err: *RuntimeError, entityIndex: u32, fieldIndex: u32) !u32 {
+    if (fieldIndex >= self.maxFieldIndex) {
+      _ = try std.fmt.bufPrint(&err.message, "field index {} is out of bound (nb of fields: {})", .{
+        fieldIndex, self.maxFieldIndex,
+      });
+      return error.RuntimeError;
+    }
+    const entityIndexEnt = self.translateVMToEnt(entityIndex);
+    const entity = @as(*Entity, @ptrCast(@alignCast(&self.mem32[entityIndexEnt])));
+    const addrFieldEnt = (@intFromPtr(&entity.data[fieldIndex]) - @intFromPtr(self.mem32.ptr)) / @sizeOf(u32);
+    const addrVM = intCast(u32, self.translateEntToVM(addrFieldEnt));
+    return addrVM;
   }
 
   pub fn jumpToFunction(self: *Self, functionName: []const u8) !void {
@@ -376,10 +440,9 @@ const VM = struct {
   }
 
   pub fn registerFile(self: *Self, path: []const u8, data: []const u8) void {
-    // Do nothing for now
     _ = self;
-    _ = path;
     _ = data;
+    std.log.warn("registerFile {s} not implemented", .{ path });
   }
 
   fn call(self: *Self, statement: datModule.Statement, argc: u8, err: *RuntimeError) !void {
@@ -413,31 +476,6 @@ const VM = struct {
       _ = try std.fmt.bufPrint(&err.message, "No function with index {}", .{ fnIndex });
       return error.RuntimeError;
     }
-  }
-
-  pub fn getFieldByIndex(self: Self, fieldIndex: usize) ?datModule.Field {
-    // Let's not forget that in the dat structure, all indexed 0 element are
-    // meaningless and array are 1-based
-    for (self.dat.?.fields[1..]) |field| {
-      if (field.offset == fieldIndex) {
-        return field;
-      }
-    }
-    return null;
-  }
-
-  // From a entityIndex (just a number really) and fieldIndex construct an
-  // opaque number that will be used to identify this particular field of this
-  // particular struct.
-  pub fn getFieldPtr(self: Self, err: *RuntimeError, entityIndex: u32, fieldIndex: u32) !u32 {
-    if (fieldIndex >= self.maxFieldIndex) {
-      _ = try std.fmt.bufPrint(&err.message, "field index {} is out of bound (nb of fields: {})", .{
-        fieldIndex, self.maxFieldIndex,
-      });
-      return error.RuntimeError;
-    }
-    const entity = @as(*Entity, @ptrCast(@alignCast(&self.mem32[entityIndex])));
-    return intCast(u32, (@intFromPtr(&entity.data[fieldIndex]) - @intFromPtr(self.mem32.ptr)) / @sizeOf(u32));
   }
 
   pub fn execute(self: *Self, err: *RuntimeError) !bool {
@@ -474,6 +512,7 @@ const VM = struct {
 
         self.write32(dst, try self.getFieldPtr(err, entityIndex, fieldIndex));
         self.pc += 1;
+
         return false;
       },
       datModule.OpCode.RETURN => {
@@ -713,7 +752,7 @@ const VM = struct {
 
         const fieldPtr = try self.getFieldPtr(err, entityIndex, fieldIndex);
 
-        self.write32(dst, self.mem32[fieldPtr]);
+        self.write32(dst, self.read32ent(fieldPtr));
 
         self.pc += 1;
         return false;
@@ -728,9 +767,10 @@ const VM = struct {
 
         const fieldPtr = try self.getFieldPtr(err, entityIndex, fieldIndex);
 
-        self.write32(dst    , self.mem32[fieldPtr    ]);
-        self.write32(dst + 1, self.mem32[fieldPtr + 1]);
-        self.write32(dst + 2, self.mem32[fieldPtr + 2]);
+        self.write32(dst    , self.read32ent(fieldPtr    ));
+        // TODO: Having to decrease memory here is a leaky abstraction
+        self.write32(dst + 1, self.read32ent(fieldPtr - 1));
+        self.write32(dst + 2, self.read32ent(fieldPtr - 2));
 
         self.pc += 1;
         return false;
@@ -747,6 +787,7 @@ const VM = struct {
       datModule.OpCode.STORE_V => {
         const src = statement.arg1;
         const dst = statement.arg2;
+
         self.write32(dst    , self.mem32[src    ]);
         self.write32(dst + 1, self.mem32[src + 1]);
         self.write32(dst + 2, self.mem32[src + 2]);
@@ -761,7 +802,7 @@ const VM = struct {
         const src = statement.arg1;
         const fieldPtr = statement.arg2;
 
-        self.write32(self.mem32[fieldPtr], self.mem32[src]);
+        self.write32ent(self.mem32[fieldPtr], self.mem32[src]);
 
         self.pc += 1;
         return false;
@@ -770,9 +811,10 @@ const VM = struct {
         const src = statement.arg1;
         const fieldPtr = statement.arg2;
 
-        self.write32(self.mem32[fieldPtr]    , self.mem32[src    ]);
-        self.write32(self.mem32[fieldPtr] + 1, self.mem32[src + 1]);
-        self.write32(self.mem32[fieldPtr] + 2, self.mem32[src + 2]);
+        self.write32ent(self.mem32[fieldPtr]    , self.mem32[src    ]);
+        // TODO: Having to decrease memory here is a leaky abstraction
+        self.write32ent(self.mem32[fieldPtr] - 1, self.mem32[src + 1]);
+        self.write32ent(self.mem32[fieldPtr] - 2, self.mem32[src + 2]);
 
         self.pc += 1;
         return false;
