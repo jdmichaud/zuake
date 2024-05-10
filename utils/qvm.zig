@@ -450,7 +450,7 @@ const VM = struct {
     const entityIndex = fieldPtr / self.maxFieldIndex;
     const fieldIndex = fieldPtr % self.maxFieldIndex;
 
-    if (self.getFieldByIndex(fieldPtr)) |field| {
+    if (self.getFieldByIndex(fieldIndex)) |field| {
       const fieldName = self.getString(field.nameOffset);
       return .{
         .entityIndex = entityIndex,
