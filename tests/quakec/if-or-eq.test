@@ -5,7 +5,8 @@ output:
 simple equality OK
 or operator OK
 string comparison OK
-testing empty entity OK
-testing empty entity OK
-testing empty string OK
-testing empty string OK
+testing uninitialized entity OK
+testing initialized entity OK
+testing uninitialized string OK
+testing boolean operation on empty string OK
+testing boolean operation on initialized string OK
