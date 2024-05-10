@@ -10,6 +10,7 @@ const std = @import("std");
 const misc = @import("misc.zig");
 const clap = @import("clap.zig");
 const datModule = @import("dat.zig");
+const bspModule = @import("bsp.zig");
 const entityModule = @import("entity.zig");
 const rfba = @import("reverse-fixed-buffer-allocator.zig");
 
@@ -234,6 +235,7 @@ const VM = struct {
 
   allocator: std.mem.Allocator,
   dat: ?datModule.Dat,
+  bsp: ?bspModule.Bsp,
 
   // Dat Memory layout        VM memory layout
   // 0-------------------
@@ -289,6 +291,7 @@ const VM = struct {
     return Self{
       .allocator = allocator,
       .dat = null,
+      .bsp = null,
       .mem = mem,
       .mem32 = mem32,
       .sp = 0,
@@ -327,6 +330,12 @@ const VM = struct {
     }
     maxFieldIndex += 1; // To simplify, ensure that it's never 0
     self.maxFieldIndex = maxFieldIndex;
+  }
+
+  // Load a bsp file and initialize its entities.
+  pub fn loadBsp(self: *Self, bsp: bspModule.Bsp) !void {
+    self.bsp = bsp;
+    std.log.debug("load bsp", .{});
   }
 
   pub fn loadEntities(self: *Self, entities: []entityModule.Entity) !void {
@@ -939,16 +948,24 @@ pub fn main() !u8 {
       .long = "jump-to",
       .arg = .{ .name = "function", .type = []const u8 },
       .help = "Jump to function on startup",
+    }, .{
+      .short = "b",
+      .long = "bsp-file",
+      .arg = .{ .name = "bspfile", .type = []const u8 },
+      .help = "Load a BSP file",
     } },
   }).parse(args);
 
-  const mapfilepath = parsedArgs.arguments.items[0];
-  const buffer = misc.load(mapfilepath) catch |err| {
-    try stderr.print("error: {}, trying to open {s}\n", .{ err, mapfilepath });
+  // Create the VM
+  var vm = try VM.init(allocator, .{ .trace = parsedArgs.getSwitch("trace") });
+  defer vm.deinit();
+  // Load the dat file
+  const datfilepath = parsedArgs.arguments.items[0];
+  const buffer = misc.load(datfilepath) catch |err| {
+    try stderr.print("error: {}, trying to open {s}\n", .{ err, datfilepath });
     std.posix.exit(1);
   };
   defer std.posix.munmap(buffer);
-
   var dat = datModule.Dat.init(allocator, buffer) catch |err| {
     return err;
   };
@@ -957,14 +974,29 @@ pub fn main() !u8 {
     try stderr.print("error: version {} not supported\n", .{ dat.header.version });
     std.posix.exit(1);
   }
-
-  var vm = try VM.init(allocator, .{ .trace = parsedArgs.getSwitch("trace") });
-  defer vm.deinit();
   try vm.loadDat(dat);
+  // Load a BSP file if provided.
+  // This piece of code it quite contrived and should probably be revised.
+  var bspTupleP = if (parsedArgs.getOption([]const u8, "bsp-file")) |bspfilepath| blkinner: {
+    const bspBuffer = misc.load(bspfilepath) catch |err| {
+      try stderr.print("error: {}, trying to open {s}\n", .{ err, bspfilepath });
+      std.posix.exit(1);
+    };
+    const bsp = try bspModule.Bsp.init(allocator, bspBuffer);
+    try vm.loadBsp(bsp);
+    break :blkinner .{ bspBuffer, bsp };
+  } else null;
+  defer {
+    if (bspTupleP) |*bspTuple| {
+      bspTuple[1].deinit(allocator);
+      std.posix.munmap(bspTuple[0]);
+    }
+  }
+  // Check if we should jump to a particular function on boot.
   if (parsedArgs.getSwitch("jump-to")) {
     try vm.jumpToFunction(parsedArgs.getOption([]const u8, "jump-to") orelse "main");
   }
-
+  // Run the VM
   var err = RuntimeError{};
   while (true) {
     const done = vm.execute(&err) catch |e| {
