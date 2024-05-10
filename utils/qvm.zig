@@ -11,6 +11,7 @@ const misc = @import("misc.zig");
 const clap = @import("clap.zig");
 const datModule = @import("dat.zig");
 const entityModule = @import("entity.zig");
+const rfba = @import("reverse-fixed-buffer-allocator.zig");
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
@@ -254,6 +255,8 @@ const VM = struct {
   // It will be used in the formula to get a unique identifier for each field of
   // each entity
   maxFieldIndex: usize,
+  // Heap allocator
+  heapAllocator: std.mem.Allocator,
   // Options provided at creation
   options: VMOptions,
 
@@ -266,6 +269,9 @@ const VM = struct {
     const mem32: []u32 = try allocator.alloc(u32, memsize / @sizeOf(u32));
     // Keep a []8 slice around for convenience
     const mem: []u8 = std.mem.sliceAsBytes(mem32);
+    // Create the allocator used for heap allocation
+    var reversed_fixed_buffer_allocator = rfba.ReverseFixedBufferAllocator.init(mem);
+    const heapAllocator = reversed_fixed_buffer_allocator.allocator();
 
     return Self{
       .allocator = allocator,
@@ -278,6 +284,7 @@ const VM = struct {
       .pc = 0,
       .entities = std.ArrayList(entityModule.Entity).init(allocator),
       .maxFieldIndex = 0,
+      .heapAllocator = heapAllocator,
       .options = options,
     };
   }
