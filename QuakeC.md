@@ -125,3 +125,35 @@ STORE_ENT 85      81      0
 The content of 85 is opaque to the compiler. This is a VM implementation detail.
 The VM has to come up with a scheme which allows it to identify a particular
 field of a particular entity with just a u32.
+
+Entities can have methods. Methods are defined as a field but with a function
+signature:
+```qc
+.void() foo;
+```
+
+Just like regular fields they must be initialized by assigning a value (in this
+case a function) to them.
+
+### Special entities
+
+`world` is a special entity whose handler must be seen a 0 by the VM. Whenever
+a function retuning an entity want to notify "no entity", it will return `world`
+(meaning 0):
+```qc
+const e = findEntity();
+if (e == world) {
+  print("no entity found");
+}
+```
+
+`self` is the entity used to call a method on an entity. Whenever you call a
+method on en entity, self must be set to that entity beforehand. The method code
+might rely on self being set to access the member of that particular entity. It
+is unclear if this is a convention or a requirement enforced by the compiler.
+
+## Memory operations
+
+- LOAD: from entity to memory
+- STORE: from memory to memory
+- STOREP: from memory to entity
