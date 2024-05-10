@@ -1,0 +1,5 @@
+cmd: --jump-to main
+file: self.dat
+exit: 0
+output:
+height: 128 origin '0 32 -64'

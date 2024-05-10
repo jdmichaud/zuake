@@ -271,6 +271,7 @@ const VM = struct {
     // Allocate memory that is aligned along the u32 alignment constraints as we
     // are going to mainly access this memory by reading and writing u32s.
     const mem32: []u32 = try allocator.alloc(u32, memsize / @sizeOf(u32));
+    @memset(mem32, 0);
     // Keep a []8 slice around for convenience
     const mem: []u8 = std.mem.sliceAsBytes(mem32);
 
@@ -382,7 +383,7 @@ const VM = struct {
   }
 
   fn call(self: *Self, statement: datModule.Statement, argc: u8, err: *RuntimeError) !void {
-    const fnIndex = statement.arg1;
+    const fnIndex = self.mem32[statement.arg1];
 
     if (self.dat.?.getFunctionByIndex(fnIndex)) |fun| {
       if (fun.entryPoint > 0) {
@@ -446,11 +447,11 @@ const VM = struct {
 
   inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
     if (self.options.trace) {
-      try stdout.print("{s: <9} {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] {: >5}[{d: >8.6}] pc {} sp 0x{x} fp 0x{x}\n", .{
+      try stdout.print("{s: <9} {: >5}[{: >8.6}] {: >5}[{: >8.6}] {: >5}[{: >8.6}] pc {} sp 0x{x} fp 0x{x}\n", .{
         @tagName(statement.opcode),
-        statement.arg1, bitCast(f32, self.mem32[statement.arg1]),
-        statement.arg2, bitCast(f32, self.mem32[statement.arg2]),
-        statement.arg3, bitCast(f32, self.mem32[statement.arg3]),
+        statement.arg1, self.mem32[statement.arg1],
+        statement.arg2, self.mem32[statement.arg2],
+        statement.arg3, self.mem32[statement.arg3],
         self.pc,
         self.sp,
         self.fp,
@@ -754,7 +755,6 @@ const VM = struct {
       },
       datModule.OpCode.STOREP_S,
       datModule.OpCode.STOREP_F,
-      datModule.OpCode.STOREP_V,
       datModule.OpCode.STOREP_ENT,
       datModule.OpCode.STOREP_FLD,
       datModule.OpCode.STOREP_FNC => {
@@ -762,6 +762,17 @@ const VM = struct {
         const fieldPtr = statement.arg2;
 
         self.write32(self.mem32[fieldPtr], self.mem32[src]);
+
+        self.pc += 1;
+        return false;
+      },
+      datModule.OpCode.STOREP_V => {
+        const src = statement.arg1;
+        const fieldPtr = statement.arg2;
+
+        self.write32(self.mem32[fieldPtr]    , self.mem32[src    ]);
+        self.write32(self.mem32[fieldPtr] + 1, self.mem32[src + 1]);
+        self.write32(self.mem32[fieldPtr] + 2, self.mem32[src + 2]);
 
         self.pc += 1;
         return false;

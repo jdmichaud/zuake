@@ -268,11 +268,8 @@ pub const Dat = struct {
   }
 
   pub fn getFunctionByIndex(self: Self, index: u32) ?Function {
-    for (self.definitions) |definition| {
-      if (definition.getType() == QType.Function
-        and definition.globalIndex == index) {
-        return self.getFunction(definition);
-      }
+    if (index < self.functions.len) {
+      return self.functions[index];
     }
     return null;
   }
