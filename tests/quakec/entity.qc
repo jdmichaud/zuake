@@ -11,4 +11,7 @@ void() main = {
   entity e2 = spawn();
   e2.tutu = 10;
   print(ftos(e2.tutu), "\n");
+  if (e2.tutu == 42) {
+    print("error!\n");
+  }
 }
