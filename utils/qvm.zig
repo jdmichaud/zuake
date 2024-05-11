@@ -1117,7 +1117,8 @@ pub fn main() !u8 {
       try stderr.print("error: {}, trying to open {s}\n", .{ e, bspfilepath });
       std.posix.exit(1);
     };
-    const bsp = try bspModule.Bsp.init(allocator, bspBuffer);
+    var bsp = try bspModule.Bsp.init(allocator, bspBuffer);
+    errdefer bsp.deinit(allocator);
     vm.loadBsp(bsp, &err) catch |e| {
       return switch (e) {
         // error.UnknownFieldName,
