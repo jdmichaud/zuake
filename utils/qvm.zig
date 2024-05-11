@@ -228,10 +228,12 @@ const Builtins = struct {
 pub const VMOptions = struct {
   trace: bool = false,
   memsize: usize = 1024 * 1024 * 1, // 1Mb by default
+  verbose: bool = false,
 };
 
 const VM = struct {
   const Self = @This();
+  const MAX_ENTITIES = 1024;
 
   allocator: std.mem.Allocator,
   dat: ?datModule.Dat,
@@ -273,7 +275,9 @@ const VM = struct {
   // Heap allocator
   heapAllocator: rfba.ReverseFixedBufferAllocator,
   // The world entity
-  world: u32,
+  world: usize,
+  // The list of entity offset in memory
+  entityOffsets: [MAX_ENTITIES]usize = [_]usize{ 0 } ** MAX_ENTITIES,
   // Options provided at creation
   options: VMOptions,
 
@@ -281,6 +285,9 @@ const VM = struct {
     // We make sure that memsize is divisible by @sizeOf(u32)
     const memsize: usize =
       @intFromFloat(@ceil(@as(f32, @floatFromInt(options.memsize)) / @sizeOf(u32)) * @sizeOf(u32));
+    if (options.verbose) {
+      try stdout.print("{}Ko of memory allocated\n", .{ options.memsize / 1024 });
+    }
     // Allocate memory that is aligned along the u32 alignment constraints as we
     // are going to mainly access this memory by reading and writing u32s.
     const mem32: []u32 = try allocator.alloc(u32, memsize / @sizeOf(u32));
@@ -330,6 +337,19 @@ const VM = struct {
     }
     maxFieldIndex += 1; // To simplify, ensure that it's never 0
     self.maxFieldIndex = maxFieldIndex;
+    if (self.options.verbose) {
+      try stdout.print(
+        "Dat loaded {} globals {} strings {} definitions {} fields {} functions {} statements loaded\n", .{
+          dat.globals.len,
+          dat.strings.len,
+          dat.definitions.len,
+          dat.fields.len,
+          dat.functions.len,
+          dat.statements.len,
+        }
+      );
+      try stdout.print("{} bytes of static memory used\n", .{ self.stackOffset });
+    }
   }
 
   // Load a bsp file and initialize its entities.
@@ -343,6 +363,15 @@ const VM = struct {
       return error.NoWorld;
     }
     try self.loadEntities(entityList.entities, err);
+    if (self.options.verbose) {
+      try stdout.print("Bsp loaded {} entities into {}Ko of static memory and {}Ko of heap with {} fields per entity\n", .{
+        entityList.entities.len,
+        (self.sp - self.stackOffset) / 1024,
+        (self.mem.len - self.heapAllocator.end_index) / 1024,
+        self.maxFieldIndex,
+      });
+    }
+    try self.callConstructors(entityList.entities, err);
   }
 
   // The first entity automatically created.
@@ -362,8 +391,8 @@ const VM = struct {
     const entity = try allocator.create(Entity);
     entity.data = (try allocator.alloc(u32, self.maxFieldIndex + 1)).ptr;
     const entityIndex = (@intFromPtr(entity) - @intFromPtr(self.mem.ptr)) / @sizeOf(u32);
-    self.world = intCast(u32, entityIndex);
-    try self.loadEntityFields(self.world, world, err);
+    self.world = entityIndex;
+    try self.loadEntityFields(intCast(u32, self.world), world, err);
   }
 
   // Load all the entity's fields into memory.
@@ -397,13 +426,36 @@ const VM = struct {
   }
 
   pub fn loadEntities(self: *Self, entities: []entityModule.Entity, err: *RuntimeError) !void {
-    for (entities) |entity| {
+    if (entities.len > MAX_ENTITIES) return error.StaticArrayTooSmall;
+    for (entities, 0..) |entity, i| {
       // Do not load world twice
-      if (entity.get("classname")) |classname| {
-        if (std.mem.eql(u8, classname.toString() catch "", "worldspawn")) continue;
-      }
+      const classname = entity.get("classname").?.toString() catch "NOCLASSNAME";
+      if (std.mem.eql(u8, classname, "worldspawn")) continue;
+      // Load fields
       const entityIndex = try Builtins.spawn(self, 0, 0);
+      self.entityOffsets[i] = entityIndex;
       try self.loadEntityFields(intCast(u32, self.translateEntToVM(entityIndex)), entity, err);
+    }
+  }
+
+  pub fn callConstructors(self: *Self, entities: []entityModule.Entity, err: *RuntimeError) !void {
+    for (entities) |entity| {
+      const classname = entity.get("classname").?.toString() catch {
+        _ = try std.fmt.bufPrint(&err.message, "Field classname is not a string {}", .{ entity });
+        return error.ClassnameNotAString;
+      };
+      const selfDefinition = self.dat.?.getDefinitionByName("self") orelse {
+        _ = try std.fmt.bufPrint(&err.message,
+          "no self definition. Without a self definition, constructors cannot be called.", .{});
+        return error.ClassnameNotAString;
+      };
+      if (self.dat.?.getFunctionByName(classname)) |constructorFn| {
+        // set self to entity
+        self.write32(selfDefinition.globalIndex, intCast(u32, self.translateEntToVM(self.world)));
+        // goto funtion
+        std.debug.assert(constructorFn.entryPoint > 0);
+        self.pc = intCast(usize, constructorFn.entryPoint);
+      } else std.log.warn("constructor {s} could not be found", .{ classname });
     }
   }
 
@@ -1003,6 +1055,10 @@ pub fn main() !u8 {
       .long = "trace",
       .help = "Enable tracing of instructions",
     }, .{
+      .short = "e",
+      .long = "verbose",
+      .help = "Display additional information about the VM",
+    }, .{
       .short = "j",
       .long = "jump-to",
       .arg = .{ .name = "function", .type = []const u8 },
@@ -1016,7 +1072,10 @@ pub fn main() !u8 {
   }).parse(args);
 
   // Create the VM
-  var vm = try VM.init(allocator, .{ .trace = parsedArgs.getSwitch("trace") });
+  var vm = try VM.init(allocator, .{
+    .trace = parsedArgs.getSwitch("trace"),
+    .verbose = parsedArgs.getSwitch("verbose"),
+  });
   defer vm.deinit();
   // Load the dat file
   const datfilepath = parsedArgs.arguments.items[0];

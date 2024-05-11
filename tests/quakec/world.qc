@@ -12,10 +12,29 @@ entity self;
 .float worldtype;
 .string message;
 
+.float angle;
+.float health;
+.string killtarget;
+.float light;
+.vector mangle;
+.string map;
+.string model;
+.vector origin;
+.float spawnflags;
+.float speed;
+.float style;
+.string target;
+.string targetname;
+.float wait;
+
+void() worldspawn = {
+  print("classname ", self.classname, "\n");
+  print("wad ", self.wad, "\n");
+  print("sounds ", ftos(self.sounds), "\n");
+  print("worldtype ", ftos(self.worldtype), "\n");
+  print("message ", self.message, "\n");
+}
+
 void() main = {
-  print("classname ", world.classname, "\n");
-  print("wad ", world.wad, "\n");
-  print("sounds ", ftos(world.sounds), "\n");
-  print("worldtype ", ftos(world.worldtype), "\n");
-  print("message ", world.message, "\n");
+  print("nothing to do\n");
 }

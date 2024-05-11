@@ -769,6 +769,7 @@ pub fn main() !void {
   defer allocator.free(bsp.mipTextures);
 
   std.log.debug("entities: {}K loaded", .{ bsp.entities.data.len / 1024 });
+  std.log.debug("{s}", .{ bsp.entities.data });
   std.log.debug("planes: {} loaded", .{ bsp.planes.len });
   std.log.debug("mipTextures: {} loaded", .{ bsp.mipTextures.len });
   std.log.debug("vertices: {} loaded", .{ bsp.vertices.len });

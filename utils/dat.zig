@@ -237,6 +237,15 @@ pub const Dat = struct {
     allocator.free(self.stringTable);
   }
 
+  pub fn getDefinitionByName(self: Self, identifier: []const u8) ?Definition {
+    for (self.definitions) |definition| {
+      if (std.mem.eql(u8, identifier, self.getString(definition.nameOffset))) {
+        return definition;
+      }
+    }
+    return null;
+  }
+
   pub fn getVar(self: Self, definition: Definition) TypedValue {
     switch (definition.getType()) {
       QType.String => return TypedValue { .String = self.getString(self.globals[definition.globalIndex]) },
@@ -270,6 +279,15 @@ pub const Dat = struct {
   pub fn getFunctionByIndex(self: Self, index: u32) ?Function {
     if (index < self.functions.len) {
       return self.functions[index];
+    }
+    return null;
+  }
+
+  pub fn getFunctionByName(self: Self, name: []const u8) ?Function {
+    for (self.functions) |function| {
+      if (std.mem.eql(u8, name, self.getString(function.nameOffset))) {
+        return function;
+      }
     }
     return null;
   }
