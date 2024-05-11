@@ -281,12 +281,20 @@ const VM = struct {
   // Options provided at creation
   options: VMOptions,
 
+  // Counters
+  instructionCount: usize = 0,
+  functionCallCount: usize = 0,
+  builtinCallCount: usize = 0,
+
   pub fn init(allocator: std.mem.Allocator, options: VMOptions) !Self {
     // We make sure that memsize is divisible by @sizeOf(u32)
     const memsize: usize =
       @intFromFloat(@ceil(@as(f32, @floatFromInt(options.memsize)) / @sizeOf(u32)) * @sizeOf(u32));
     if (options.verbose) {
-      try stdout.print("{}Ko of memory allocated\n", .{ options.memsize / 1024 });
+      try stdout.print("{}{s} of memory allocated\n", .{
+        if (options.memsize < 1024) options.memsize else options.memsize / 1024,
+        if (options.memsize < 1024) " bytes" else "Ko",
+      });
     }
     // Allocate memory that is aligned along the u32 alignment constraints as we
     // are going to mainly access this memory by reading and writing u32s.
@@ -313,6 +321,11 @@ const VM = struct {
   }
 
   pub fn deinit(self: *Self) void {
+    if (self.options.verbose) {
+      stdout.print("{} instrution executed {} function calls {} builtin calls\n", .{
+        self.instructionCount, self.functionCallCount, self.builtinCallCount,
+      }) catch unreachable;
+    }
     self.allocator.free(self.mem32);
     self.* = undefined;
   }
@@ -348,7 +361,7 @@ const VM = struct {
           dat.statements.len,
         }
       );
-      try stdout.print("{} bytes of static memory used\n", .{ self.stackOffset });
+      try stdout.print("{} bytes of static memory used\n", .{ self.stackOffset * @sizeOf(u32) });
     }
   }
 
@@ -570,6 +583,7 @@ const VM = struct {
 
     if (self.dat.?.getFunctionByIndex(fnIndex)) |fun| {
       if (fun.entryPoint > 0) {
+        self.functionCallCount += 1;
         // Copy the parameters onto the function locals
         var offset: u32 = 0;
         for (0..argc) |i| {
@@ -588,6 +602,7 @@ const VM = struct {
         self.sp += @sizeOf(u32);
         self.pc = @intCast(fun.entryPoint);
       } else {
+        self.builtinCallCount += 1;
         // No saving the PC because the builtin will not change it
         try Builtins.call(self, @abs(fun.entryPoint), argc);
         self.pc += 1;
@@ -604,6 +619,7 @@ const VM = struct {
   }
 
   inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
+    self.instructionCount +=1;
     if (self.options.trace) {
       try stdout.print("{s: <9} {: >5}[{: >8.6}] {: >5}[{: >8.6}] {: >5}[{: >8.6}] pc {} sp 0x{x} fp 0x{x}\n", .{
         @tagName(statement.opcode),
