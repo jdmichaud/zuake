@@ -334,7 +334,7 @@ const VM = struct {
   pub fn loadDat(self: *Self, dat: datModule.Dat) !void {
     // Check that the global are less than the allocated memory and reserving
     // 1K for dynamic string data and 1K for the stack.
-    if (dat.globals.len * @sizeOf(u32) > self.mem.len - 1024 * 2) {
+    if (dat.globals.len * @sizeOf(u32) > self.mem.len) {
       return error.NotEnoughMemory;
     }
     // Load globals
@@ -1052,6 +1052,17 @@ const VM = struct {
   }
 };
 
+fn getMemorySize(args: clap.Args) !usize {
+  return if (args.getOption([]const u8, "memory-size")) |memsizeArg| blkinner: {
+    const lastChar = memsizeArg[memsizeArg.len - 1];
+    break :blkinner switch (lastChar) {
+      'k', 'K' => try std.fmt.parseInt(usize, memsizeArg[0..memsizeArg.len - 1], 10) * 1024,
+      'm', 'M' => try std.fmt.parseInt(usize, memsizeArg[0..memsizeArg.len - 1], 10) * 1024 * 1024,
+      else => try std.fmt.parseInt(usize, memsizeArg, 10),
+    };
+  } else 1024 * 1024 * 1; // 1Mb by default;
+}
+
 pub fn main() !u8 {
   var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
   const allocator = general_purpose_allocator.allocator();
@@ -1075,6 +1086,11 @@ pub fn main() !u8 {
       .long = "verbose",
       .help = "Display additional information about the VM",
     }, .{
+      .short = "m",
+      .long = "memory-size",
+      .arg = .{ .name = "memory", .type = []const u8 },
+      .help = "Amount of memory to allocate for the VM (-m 12, -m 64K, -m 1M)",
+    }, .{
       .short = "j",
       .long = "jump-to",
       .arg = .{ .name = "function", .type = []const u8 },
@@ -1087,9 +1103,11 @@ pub fn main() !u8 {
     } },
   }).parse(args);
 
+  const memsize = try getMemorySize(parsedArgs);
   // Create the VM
   var vm = try VM.init(allocator, .{
     .trace = parsedArgs.getSwitch("trace"),
+    .memsize = memsize,
     .verbose = parsedArgs.getSwitch("verbose"),
   });
   defer vm.deinit();
