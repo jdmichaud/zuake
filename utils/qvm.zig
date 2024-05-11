@@ -468,6 +468,7 @@ const VM = struct {
         // goto funtion
         std.debug.assert(constructorFn.entryPoint > 0);
         self.pc = intCast(usize, constructorFn.entryPoint);
+        try self.execute(err);
       } else std.log.warn("constructor {s} could not be found", .{ classname });
     }
   }
@@ -534,18 +535,23 @@ const VM = struct {
         break :blk self.dat.?.getFunction(def);
       }
     } else {
-      return error.NoMainFunction;
+      return error.FunctionNotFound;
     };
 
     if (function == null) {
-      return error.MainIsNotAFunction;
+      return error.IdentifierIsNotAFunction;
     }
 
     if (function.?.entryPoint < 0) {
-      return error.MainIsABuiltin;
+      return error.FunctionIsABuiltin;
     }
 
     self.pc = @intCast(function.?.entryPoint);
+  }
+
+  pub fn runFunction(self: *Self, functionName: []const u8, err: *RuntimeError) !void {
+    try self.jumpToFunction(functionName);
+    try self.execute(err);
   }
 
   // Push a string to the dynamic string pile
@@ -613,9 +619,16 @@ const VM = struct {
     }
   }
 
-  pub fn execute(self: *Self, err: *RuntimeError) !bool {
-    const statement = self.dat.?.statements[self.pc];
-    return self.executeStatement(statement, err);
+  pub fn execute(self: *Self, err: *RuntimeError) !void {
+    const startInstructionCount = self.instructionCount;
+    while (true) {
+      const statement = self.dat.?.statements[self.pc];
+      const done = try self.executeStatement(statement, err);
+      if (done) break;
+      if (self.instructionCount - startInstructionCount > 100000) {
+        return error.InstructionLimitReached;
+      }
+    }
   }
 
   inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
@@ -1157,11 +1170,8 @@ pub fn main() !u8 {
   }
   // Check if we should jump to a particular function on boot.
   if (parsedArgs.getSwitch("jump-to")) {
-    try vm.jumpToFunction(parsedArgs.getOption([]const u8, "jump-to") orelse "main");
-  }
-  // Run the VM
-  while (true) {
-    const done = vm.execute(&err) catch |e| {
+    const functionName = parsedArgs.getOption([]const u8, "jump-to") orelse "main";
+    vm.runFunction(functionName, &err) catch |e| {
       return switch (e) {
         error.RuntimeError => {
           try stderr.print("error: {s}\n", .{ err.message });
@@ -1170,7 +1180,6 @@ pub fn main() !u8 {
         else => return e,
       };
     };
-    if (done) break;
   }
   // bitCast the u32 into its f32 then convert it to u8.
   return @as(u8, @intFromFloat(@as(f32, @bitCast(vm.mem32[@intFromEnum(CallRegisters.ReturnValue)]))));
