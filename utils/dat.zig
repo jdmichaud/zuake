@@ -174,7 +174,7 @@ const Definition = packed struct {
 
 pub const Field = packed struct {
   ty: QType,
-  offset: u16,
+  index: u16,
   nameOffset: u32, // offset in the string table
 };
 
@@ -347,7 +347,7 @@ pub fn main() !void {
       index,
       @tagName(field.ty),
       dat.getString(field.nameOffset),
-      field.offset,
+      field.index,
     });
   }
 

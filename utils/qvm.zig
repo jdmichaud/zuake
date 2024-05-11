@@ -326,21 +326,23 @@ const VM = struct {
     self.dat = dat;
     var maxFieldIndex: usize = 0;
     for (dat.fields) |field| {
-      if (field.offset > maxFieldIndex) maxFieldIndex = field.offset;
+      if (field.index > maxFieldIndex) maxFieldIndex = field.index;
     }
     maxFieldIndex += 1; // To simplify, ensure that it's never 0
     self.maxFieldIndex = maxFieldIndex;
   }
 
   // Load a bsp file and initialize its entities.
-  pub fn loadBsp(self: *Self, bsp: bspModule.Bsp) !void {
+  pub fn loadBsp(self: *Self, bsp: bspModule.Bsp, err: *RuntimeError) !void {
     self.bsp = bsp;
-    std.log.debug("load bsp", .{});
-  }
-
-  pub fn loadEntities(self: *Self, entities: []entityModule.Entity) !void {
-    _ = self;
-    _ = entities;
+    var entityList = try entityModule.EntityList.init(self.allocator, bsp.entities);
+    defer entityList.deinit();
+    if (entityList.get("worldspawn")) |worldEntity| {
+      try self.createWorld(worldEntity, err);
+    } else {
+      return error.NoWorld;
+    }
+    try self.loadEntities(entityList.entities, err);
   }
 
   // The first entity automatically created.
@@ -353,43 +355,100 @@ const VM = struct {
   //     print("no entity found");
   //   }
   // ```
-  pub fn createWorld(self: *Self) void {
-    self.world = Builtins.spawn(self, 0, 0);
+  fn createWorld(self: *Self, world: entityModule.Entity, err: *RuntimeError) !void {
+    // self.world = try Builtins.spawn(self, 0, 0);
+    // We can't rely on spawn which depends on the address to self.world
+    const allocator = self.heapAllocator.allocator();
+    const entity = try allocator.create(Entity);
+    entity.data = (try allocator.alloc(u32, self.maxFieldIndex + 1)).ptr;
+    const entityIndex = (@intFromPtr(entity) - @intFromPtr(self.mem.ptr)) / @sizeOf(u32);
+    self.world = intCast(u32, entityIndex);
+    try self.loadEntityFields(self.world, world, err);
+  }
+
+  // Load all the entity's fields into memory.
+  // String are pushed on the stack and their reference set in the entity field.
+  // Float are set directly in the entity field.
+  fn loadEntityFields(self: *Self, entityIndex: u32, entity: entityModule.Entity,
+    err: *RuntimeError) !void {
+    // Go through the entity from the BSP, load the data in memory and set the fields.
+    var it = entity.iterator();
+    while (it.next()) |entry| {
+      const fieldName = entry.key_ptr.*;
+      const fieldValue = switch (entry.value_ptr.value) {
+        .String => |s| blk: {
+          break :blk try self.pushString("{s}", .{ s });
+        },
+        .Float => |f| blk: {
+          break :blk bitCast(u32, f);
+        },
+      };
+      const fieldIndex = self.getFieldIndexFromName(fieldName) orelse {
+        // _ = try std.fmt.bufPrint(&err.message, "Undeclared field name: {s}", .{ fieldName });
+        // break :blk error.UnknownFieldName;
+        std.log.warn("Undeclared field name: {s}", .{ fieldName });
+        continue;
+      };
+
+      const fieldPtr = try self.getFieldPtr(err, intCast(u32,
+        self.translateEntToVM(entityIndex)), fieldIndex);
+      self.write32ent(fieldPtr, intCast(u32, fieldValue));
+    }
+  }
+
+  pub fn loadEntities(self: *Self, entities: []entityModule.Entity, err: *RuntimeError) !void {
+    for (entities) |entity| {
+      // Do not load world twice
+      if (entity.get("classname")) |classname| {
+        if (std.mem.eql(u8, classname.toString() catch "", "worldspawn")) continue;
+      }
+      const entityIndex = try Builtins.spawn(self, 0, 0);
+      try self.loadEntityFields(intCast(u32, self.translateEntToVM(entityIndex)), entity, err);
+    }
   }
 
   // Accessors to regular memory (globals, strings, etc...)
-  pub inline fn read32(self: Self, addr: usize) u32 {
+  inline fn read32(self: Self, addr: usize) u32 {
     return self.mem32[addr];
   }
 
-  pub inline fn write32(self: Self, addr: usize, value: u32) void {
+  inline fn write32(self: Self, addr: usize, value: u32) void {
     self.mem32[addr] = value;
   }
 
   // Translate from entity address to VM address
   // This allows the VM to see entities in a different address space than they
   // really are.
-  pub inline fn translateEntToVM(self: Self, addr: usize) usize {
+  inline fn translateEntToVM(self: Self, addr: usize) usize {
     return self.world - addr;
   }
 
-  pub inline fn translateVMToEnt(self: Self, addr: usize) usize {
+  inline fn translateVMToEnt(self: Self, addr: usize) usize {
     return self.world - addr;
   }
 
   // Accessors to entity memory
-  pub inline fn read32ent(self: Self, addr: usize) u32 {
+  inline fn read32ent(self: Self, addr: usize) u32 {
     return self.mem32[self.translateVMToEnt(addr)];
   }
 
-  pub inline fn write32ent(self: Self, addr: usize, value: u32) void {
+  inline fn write32ent(self: Self, addr: usize, value: u32) void {
     self.mem32[self.translateVMToEnt(addr)] = value;
+  }
+
+  fn getFieldIndexFromName(self: Self, fieldName: []const u8) ?u32 {
+    for (self.dat.?.fields) |field| {
+      if (std.mem.eql(u8, self.dat.?.getString(field.nameOffset), fieldName)) {
+        return field.index;
+      }
+    }
+    return null;
   }
 
   // From a entityIndex (just a number really) and fieldIndex construct an
   // opaque number that will be used to identify this particular field of this
   // particular struct.
-  pub fn getFieldPtr(self: Self, err: *RuntimeError, entityIndex: u32, fieldIndex: u32) !u32 {
+  fn getFieldPtr(self: Self, err: *RuntimeError, entityIndex: u32, fieldIndex: u32) !u32 {
     if (fieldIndex >= self.maxFieldIndex) {
       _ = try std.fmt.bufPrint(&err.message, "field index {} is out of bound (nb of fields: {})", .{
         fieldIndex, self.maxFieldIndex,
@@ -427,7 +486,7 @@ const VM = struct {
   // Push a string to the dynamic string pile
   pub fn pushString(self: *Self, comptime fmt: []const u8, args: anytype) !usize {
     const pointer = self.sp;
-    const written = (try std.fmt.bufPrintZ(self.mem[self.sp..], fmt, args)).len;
+    const written = (try std.fmt.bufPrintZ(self.mem[self.sp..], fmt, args)).len + 1;
     self.sp = std.mem.alignForward(usize, self.sp + written, @sizeOf(u32));
     // We need to return an address that is beyond the read only string
     // address of the DAT file so that we can distinguish were the string
@@ -809,21 +868,21 @@ const VM = struct {
       datModule.OpCode.STOREP_FLD,
       datModule.OpCode.STOREP_FNC => {
         const src = statement.arg1;
-        const fieldPtr = statement.arg2;
+        const fieldRef = statement.arg2;
 
-        self.write32ent(self.mem32[fieldPtr], self.mem32[src]);
+        self.write32ent(self.mem32[fieldRef], self.mem32[src]);
 
         self.pc += 1;
         return false;
       },
       datModule.OpCode.STOREP_V => {
         const src = statement.arg1;
-        const fieldPtr = statement.arg2;
+        const fieldRef = statement.arg2;
 
-        self.write32ent(self.mem32[fieldPtr]    , self.mem32[src    ]);
+        self.write32ent(self.mem32[fieldRef]    , self.mem32[src    ]);
         // TODO: Having to decrease memory here is a leaky abstraction
-        self.write32ent(self.mem32[fieldPtr] - 1, self.mem32[src + 1]);
-        self.write32ent(self.mem32[fieldPtr] - 2, self.mem32[src + 2]);
+        self.write32ent(self.mem32[fieldRef] - 1, self.mem32[src + 1]);
+        self.write32ent(self.mem32[fieldRef] - 2, self.mem32[src + 2]);
 
         self.pc += 1;
         return false;
@@ -975,15 +1034,25 @@ pub fn main() !u8 {
     std.posix.exit(1);
   }
   try vm.loadDat(dat);
+  var err = RuntimeError{};
   // Load a BSP file if provided.
   // This piece of code it quite contrived and should probably be revised.
   var bspTupleP = if (parsedArgs.getOption([]const u8, "bsp-file")) |bspfilepath| blkinner: {
-    const bspBuffer = misc.load(bspfilepath) catch |err| {
-      try stderr.print("error: {}, trying to open {s}\n", .{ err, bspfilepath });
+    const bspBuffer = misc.load(bspfilepath) catch |e| {
+      try stderr.print("error: {}, trying to open {s}\n", .{ e, bspfilepath });
       std.posix.exit(1);
     };
     const bsp = try bspModule.Bsp.init(allocator, bspBuffer);
-    try vm.loadBsp(bsp);
+    vm.loadBsp(bsp, &err) catch |e| {
+      return switch (e) {
+        // error.UnknownFieldName,
+        error.RuntimeError => {
+          try stderr.print("error: {s}\n", .{ err.message });
+          std.posix.exit(1);
+        },
+        else => return e,
+      };
+    };
     break :blkinner .{ bspBuffer, bsp };
   } else null;
   defer {
@@ -997,7 +1066,6 @@ pub fn main() !u8 {
     try vm.jumpToFunction(parsedArgs.getOption([]const u8, "jump-to") orelse "main");
   }
   // Run the VM
-  var err = RuntimeError{};
   while (true) {
     const done = vm.execute(&err) catch |e| {
       return switch (e) {
