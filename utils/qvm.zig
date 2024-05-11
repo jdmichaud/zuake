@@ -659,8 +659,8 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.ADDRESS => {
-        const entityIndex = self.mem32[statement.arg1];
-        const fieldIndex = self.mem32[statement.arg2];
+        const entityIndex = self.read32(statement.arg1);
+        const fieldIndex = self.read32(statement.arg2);
         const dst = statement.arg3;
 
         self.write32(dst, try self.getFieldPtr(err, entityIndex, fieldIndex));
@@ -672,9 +672,9 @@ const VM = struct {
         const src = statement.arg1;
         if (src != 0) {
           const returnAddress = @intFromEnum(CallRegisters.ReturnValue);
-          self.write32(returnAddress    , self.mem32[statement.arg1    ]);
-          self.write32(returnAddress + 1, self.mem32[statement.arg1 + 1]);
-          self.write32(returnAddress + 2, self.mem32[statement.arg1 + 2]);
+          self.write32(returnAddress    , self.read32(statement.arg1    ));
+          self.write32(returnAddress + 1, self.read32(statement.arg1 + 1));
+          self.write32(returnAddress + 2, self.read32(statement.arg1 + 2));
         }
         if (self.fp == self.stackOffset * @sizeOf(u32)) {
           // The stack is at the bottom of the memory so we are returning from main
@@ -682,9 +682,9 @@ const VM = struct {
         }
         // Restore the the FP and the PC
         self.sp = self.fp;
-        self.fp = self.mem32[self.sp / @sizeOf(u32)];
+        self.fp = self.read32(self.sp / @sizeOf(u32));
         self.sp -= @sizeOf(u32);
-        self.pc = self.mem32[self.sp / @sizeOf(u32)];
+        self.pc = self.read32(self.sp / @sizeOf(u32));
         self.pc += 1;
         return false;
       },
@@ -693,7 +693,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) * bitCast(f32, self.mem32[rhs])));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.read32(lhs)) * bitCast(f32, self.read32(rhs))));
         self.pc += 1;
         return false;
       },
@@ -701,9 +701,9 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs    ]) * bitCast(f32, self.mem32[rhs    ]))
-                        + bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) * bitCast(f32, self.mem32[rhs + 1]))
-                        + bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) * bitCast(f32, self.mem32[rhs + 2])));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.read32(lhs    )) * bitCast(f32, self.read32(rhs    )))
+                        + bitCast(u32, bitCast(f32, self.read32(lhs + 1)) * bitCast(f32, self.read32(rhs + 1)))
+                        + bitCast(u32, bitCast(f32, self.read32(lhs + 2)) * bitCast(f32, self.read32(rhs + 2))));
         self.pc += 1;
         return false;
       },
@@ -711,10 +711,10 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        const f = bitCast(f32, self.mem32[lhs]);
-        self.write32(dst    , bitCast(u32, f * bitCast(f32, self.mem32[rhs    ])));
-        self.write32(dst + 1, bitCast(u32, f * bitCast(f32, self.mem32[rhs + 1])));
-        self.write32(dst + 2, bitCast(u32, f * bitCast(f32, self.mem32[rhs + 2])));
+        const f = bitCast(f32, self.read32(lhs));
+        self.write32(dst    , bitCast(u32, f * bitCast(f32, self.read32(rhs    ))));
+        self.write32(dst + 1, bitCast(u32, f * bitCast(f32, self.read32(rhs + 1))));
+        self.write32(dst + 2, bitCast(u32, f * bitCast(f32, self.read32(rhs + 2))));
         self.pc += 1;
         return false;
       },
@@ -722,10 +722,10 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        const f = bitCast(f32, self.mem32[rhs]);
-        self.write32(dst    , bitCast(u32, f * bitCast(f32, self.mem32[lhs    ])));
-        self.write32(dst + 1, bitCast(u32, f * bitCast(f32, self.mem32[lhs + 1])));
-        self.write32(dst + 2, bitCast(u32, f * bitCast(f32, self.mem32[lhs + 2])));
+        const f = bitCast(f32, self.read32(rhs));
+        self.write32(dst    , bitCast(u32, f * bitCast(f32, self.read32(lhs    ))));
+        self.write32(dst + 1, bitCast(u32, f * bitCast(f32, self.read32(lhs + 1))));
+        self.write32(dst + 2, bitCast(u32, f * bitCast(f32, self.read32(lhs + 2))));
         self.pc += 1;
         return false;
       },
@@ -733,7 +733,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) / bitCast(f32, self.mem32[rhs])));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.read32(lhs)) / bitCast(f32, self.read32(rhs))));
         self.pc += 1;
         return false;
       },
@@ -741,7 +741,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) + bitCast(f32, self.mem32[rhs])));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.read32(lhs)) + bitCast(f32, self.read32(rhs))));
         self.pc += 1;
         return false;
       },
@@ -749,9 +749,9 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.write32(dst    , bitCast(u32, bitCast(f32, self.mem32[lhs    ]) + bitCast(f32, self.mem32[rhs    ])));
-        self.write32(dst + 1, bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) + bitCast(f32, self.mem32[rhs + 1])));
-        self.write32(dst + 2, bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) + bitCast(f32, self.mem32[rhs + 2])));
+        self.write32(dst    , bitCast(u32, bitCast(f32, self.read32(lhs    )) + bitCast(f32, self.read32(rhs    ))));
+        self.write32(dst + 1, bitCast(u32, bitCast(f32, self.read32(lhs + 1)) + bitCast(f32, self.read32(rhs + 1))));
+        self.write32(dst + 2, bitCast(u32, bitCast(f32, self.read32(lhs + 2)) + bitCast(f32, self.read32(rhs + 2))));
         self.pc += 1;
         return false;
       },
@@ -759,7 +759,7 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.write32(dst, bitCast(u32, bitCast(f32, self.mem32[lhs]) - bitCast(f32, self.mem32[rhs])));
+        self.write32(dst, bitCast(u32, bitCast(f32, self.read32(lhs)) - bitCast(f32, self.read32(rhs))));
         self.pc += 1;
         return false;
       },
@@ -767,15 +767,15 @@ const VM = struct {
         const dst = statement.arg3;
         const lhs = statement.arg1;
         const rhs = statement.arg2;
-        self.write32(dst    , bitCast(u32, bitCast(f32, self.mem32[lhs    ]) - bitCast(f32, self.mem32[rhs    ])));
-        self.write32(dst + 1, bitCast(u32, bitCast(f32, self.mem32[lhs + 1]) - bitCast(f32, self.mem32[rhs + 1])));
-        self.write32(dst + 2, bitCast(u32, bitCast(f32, self.mem32[lhs + 2]) - bitCast(f32, self.mem32[rhs + 2])));
+        self.write32(dst    , bitCast(u32, bitCast(f32, self.read32(lhs    )) - bitCast(f32, self.read32(rhs    ))));
+        self.write32(dst + 1, bitCast(u32, bitCast(f32, self.read32(lhs + 1)) - bitCast(f32, self.read32(rhs + 1))));
+        self.write32(dst + 2, bitCast(u32, bitCast(f32, self.read32(lhs + 2)) - bitCast(f32, self.read32(rhs + 2))));
         self.pc += 1;
         return false;
       },
       // Comparison Opcode Mnemonic
       datModule.OpCode.EQ_F => {
-        if (self.mem32[statement.arg1] == self.mem32[statement.arg2]) {
+        if (self.read32(statement.arg1) == self.read32(statement.arg2)) {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
           self.write32(statement.arg3, 0);
@@ -784,9 +784,9 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.EQ_V => {
-        if (self.mem32[statement.arg1    ] == self.mem32[statement.arg2    ] and
-            self.mem32[statement.arg1 + 1] == self.mem32[statement.arg2 + 1] and
-            self.mem32[statement.arg1 + 2] == self.mem32[statement.arg2 + 2]) {
+        if (self.read32(statement.arg1    ) == self.read32(statement.arg2    ) and
+            self.read32(statement.arg1 + 1) == self.read32(statement.arg2 + 1) and
+            self.read32(statement.arg1 + 2) == self.read32(statement.arg2 + 2)) {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
           self.write32(statement.arg3, 0);
@@ -815,7 +815,7 @@ const VM = struct {
       datModule.OpCode.EQ_E => @panic("EQ_E unimplemented"),
       datModule.OpCode.EQ_FNC => @panic("EQ_FNC unimplemented"),
       datModule.OpCode.NE_F => {  // untested
-        if (self.mem32[statement.arg1] == self.mem32[statement.arg2]) {
+        if (self.read32(statement.arg1) == self.read32(statement.arg2)) {
           self.write32(statement.arg3, 0);
         } else {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
@@ -824,9 +824,9 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.NE_V => {  // untested
-        if (self.mem32[statement.arg1    ] == self.mem32[statement.arg2    ] and
-            self.mem32[statement.arg1 + 1] == self.mem32[statement.arg2 + 1] and
-            self.mem32[statement.arg1 + 2] == self.mem32[statement.arg2 + 2]) {
+        if (self.read32(statement.arg1    ) == self.read32(statement.arg2    ) and
+            self.read32(statement.arg1 + 1) == self.read32(statement.arg2 + 1) and
+            self.read32(statement.arg1 + 2) == self.read32(statement.arg2 + 2)) {
           self.write32(statement.arg3, 0);
         } else {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
@@ -855,7 +855,7 @@ const VM = struct {
       datModule.OpCode.NE_E => @panic("NE_E unimplemented"),
       datModule.OpCode.NE_FNC => @panic("NE_FNC unimplemented"),
       datModule.OpCode.LE => {
-        if (self.mem32[statement.arg1] <= self.mem32[statement.arg2]) {
+        if (self.read32(statement.arg1) <= self.read32(statement.arg2)) {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
           self.write32(statement.arg3, 0);
@@ -864,7 +864,7 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.GE => {
-        if (self.mem32[statement.arg1] >= self.mem32[statement.arg2]) {
+        if (self.read32(statement.arg1) >= self.read32(statement.arg2)) {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
           self.write32(statement.arg3, 0);
@@ -873,7 +873,7 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.LT => {
-        if (self.mem32[statement.arg1] < self.mem32[statement.arg2]) {
+        if (self.read32(statement.arg1) < self.read32(statement.arg2)) {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
           self.write32(statement.arg3, 0);
@@ -882,7 +882,7 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.GT => {
-        if (self.mem32[statement.arg1] > self.mem32[statement.arg2]) {
+        if (self.read32(statement.arg1) > self.read32(statement.arg2)) {
           self.write32(statement.arg3, bitCast(u32, @as(f32, @floatFromInt(1))));
         } else {
           self.write32(statement.arg3, 0);
@@ -900,8 +900,8 @@ const VM = struct {
         const fieldRef = statement.arg2;
         const dst = statement.arg3;
 
-        const entityIndex = self.mem32[entityRef];
-        const fieldIndex = self.mem32[fieldRef];
+        const entityIndex = self.read32(entityRef);
+        const fieldIndex = self.read32(fieldRef);
 
         const fieldPtr = try self.getFieldPtr(err, entityIndex, fieldIndex);
 
@@ -915,8 +915,8 @@ const VM = struct {
         const fieldRef = statement.arg2;
         const dst = statement.arg3;
 
-        const entityIndex = self.mem32[entityRef];
-        const fieldIndex = self.mem32[fieldRef];
+        const entityIndex = self.read32(entityRef);
+        const fieldIndex = self.read32(fieldRef);
 
         const fieldPtr = try self.getFieldPtr(err, entityIndex, fieldIndex);
 
@@ -933,7 +933,7 @@ const VM = struct {
       datModule.OpCode.STORE_ENT,
       datModule.OpCode.STORE_FLD,
       datModule.OpCode.STORE_FNC => {
-        self.write32(statement.arg2, self.mem32[statement.arg1]);
+        self.write32(statement.arg2, self.read32(statement.arg1));
         self.pc += 1;
         return false;
       },
@@ -941,9 +941,9 @@ const VM = struct {
         const src = statement.arg1;
         const dst = statement.arg2;
 
-        self.write32(dst    , self.mem32[src    ]);
-        self.write32(dst + 1, self.mem32[src + 1]);
-        self.write32(dst + 2, self.mem32[src + 2]);
+        self.write32(dst    , self.read32(src    ));
+        self.write32(dst + 1, self.read32(src + 1));
+        self.write32(dst + 2, self.read32(src + 2));
         self.pc += 1;
         return false;
       },
@@ -955,7 +955,7 @@ const VM = struct {
         const src = statement.arg1;
         const fieldRef = statement.arg2;
 
-        self.write32ent(self.mem32[fieldRef], self.mem32[src]);
+        self.write32ent(self.read32(fieldRef), self.read32(src));
 
         self.pc += 1;
         return false;
@@ -964,10 +964,10 @@ const VM = struct {
         const src = statement.arg1;
         const fieldRef = statement.arg2;
 
-        self.write32ent(self.mem32[fieldRef]    , self.mem32[src    ]);
+        self.write32ent(self.read32(fieldRef)    , self.read32(src    ));
         // TODO: Having to decrease memory here is a leaky abstraction
-        self.write32ent(self.mem32[fieldRef] - 1, self.mem32[src + 1]);
-        self.write32ent(self.mem32[fieldRef] - 2, self.mem32[src + 2]);
+        self.write32ent(self.read32(fieldRef) - 1, self.read32(src + 1));
+        self.write32ent(self.read32(fieldRef) - 2, self.read32(src + 2));
 
         self.pc += 1;
         return false;
@@ -977,23 +977,23 @@ const VM = struct {
       datModule.OpCode.NOT_ENT => {
         const src = statement.arg1;
         const dst = statement.arg3;
-        self.write32(dst, if (self.mem32[src] == 0) bitCast(u32, @as(f32, 1)) else 0);
+        self.write32(dst, if (self.read32(src) == 0) bitCast(u32, @as(f32, 1)) else 0);
         self.pc += 1;
         return false;
       },
       datModule.OpCode.NOT_V => {
         const vec = statement.arg1;
         const dst = statement.arg3;
-        self.write32(dst, if (self.mem32[vec    ] == 0 and
-                              self.mem32[vec + 1] == 0 and
-                              self.mem32[vec + 2] == 0) bitCast(u32, @as(f32, 1)) else 0);
+        self.write32(dst, if (self.read32(vec    ) == 0 and
+                              self.read32(vec + 1) == 0 and
+                              self.read32(vec + 2) == 0) bitCast(u32, @as(f32, 1)) else 0);
         self.pc += 1;
         return false;
       },
       datModule.OpCode.NOT_S => @panic("NOT_S unimplemented"),
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
       datModule.OpCode.IF => { // untested
-        if (self.mem32[statement.arg1] != 0) {
+        if (self.read32(statement.arg1) != 0) {
           self.pc += statement.arg2;
         } else {
           self.pc += 1;
@@ -1001,7 +1001,7 @@ const VM = struct {
         return false;
       },
       datModule.OpCode.IFNOT => {
-        if (self.mem32[statement.arg1] == 0) {
+        if (self.read32(statement.arg1) == 0) {
           self.pc += statement.arg2;
         } else {
           self.pc += 1;
@@ -1027,7 +1027,7 @@ const VM = struct {
         const lhs = statement.arg1;
         const rhs = statement.arg2;
         const dst = statement.arg3;
-        self.write32(dst, if (self.mem32[lhs] != 0 and self.mem32[rhs] != 0)
+        self.write32(dst, if (self.read32(lhs) != 0 and self.read32(rhs) != 0)
           bitCast(u32, @as(f32, 1)) else 0);
         self.pc += 1;
         return false;
@@ -1036,7 +1036,7 @@ const VM = struct {
         const lhs = statement.arg1;
         const rhs = statement.arg2;
         const dst = statement.arg3;
-        self.write32(dst, if (self.mem32[lhs] != 0 or self.mem32[rhs] != 0)
+        self.write32(dst, if (self.read32(lhs) != 0 or self.read32(rhs) != 0)
           bitCast(u32, @as(f32, 1)) else 0);
         self.pc += 1;
         return false;
@@ -1050,7 +1050,7 @@ const VM = struct {
         // do the operation
         // i32 floatcast f32
         // f32 bitcast to
-        const result = intCast(i32, bitCast(f32, self.mem32[lhs])) & intCast(i32, bitCast(f32, self.mem32[rhs]));
+        const result = intCast(i32, bitCast(f32, self.read32(lhs))) & intCast(i32, bitCast(f32, self.read32(rhs)));
         self.write32(dst, bitCast(u32, @as(f32, @floatFromInt(result))));
         self.pc += 1;
         return false;
@@ -1060,7 +1060,7 @@ const VM = struct {
         const lhs = statement.arg1;
         const rhs = statement.arg2;
 
-        const result = intCast(i32, bitCast(f32, self.mem32[lhs])) | intCast(i32, bitCast(f32, self.mem32[rhs]));
+        const result = intCast(i32, bitCast(f32, self.read32(lhs))) | intCast(i32, bitCast(f32, self.read32(rhs)));
         self.write32(dst, bitCast(u32, @as(f32, @floatFromInt(result))));
         self.pc += 1;
         return false;
