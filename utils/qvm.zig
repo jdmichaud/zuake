@@ -361,7 +361,11 @@ const VM = struct {
           dat.statements.len,
         }
       );
-      try stdout.print("{} bytes of static memory used\n", .{ self.stackOffset * @sizeOf(u32) });
+      const used = self.stackOffset * @sizeOf(u32);
+      try stdout.print("{}{s} of static memory used\n", .{
+        if (used < 1024) used else used / 1024,
+        if (used < 1024) " bytes" else "Ko",
+      });
     }
   }
 
