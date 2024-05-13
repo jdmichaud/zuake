@@ -282,6 +282,7 @@ const VM = struct {
   // The world entity
   world: usize,
   // The list of entity offset in memory
+  // 0 is world
   entityOffsets: [MAX_ENTITIES]usize = [_]usize{ 0 } ** MAX_ENTITIES,
   // Options provided at creation
   options: VMOptions,
@@ -393,7 +394,7 @@ const VM = struct {
         self.maxFieldIndex,
       });
     }
-    try self.callConstructors(entityList.entities, err);
+    try self.callConstructors(err);
   }
 
   // The first entity automatically created.
@@ -414,6 +415,7 @@ const VM = struct {
     entity.data = (try allocator.alloc(u32, self.maxFieldIndex + 1)).ptr;
     const entityIndex = (@intFromPtr(entity) - @intFromPtr(self.mem.ptr)) / @sizeOf(u32);
     self.world = entityIndex;
+    self.entityOffsets[0] = self.world;
     try self.loadEntityFields(intCast(u32, self.world), world, err);
   }
 
@@ -441,41 +443,48 @@ const VM = struct {
         continue;
       };
 
-      const fieldPtr = try self.getFieldPtr(err, intCast(u32,
-        self.translateEntToVM(entityIndex)), fieldIndex);
+      const fieldPtr = try self.getFieldPtr(intCast(u32, self.translateEntToVM(entityIndex)),
+        fieldIndex, err);
+
       self.write32ent(fieldPtr, intCast(u32, fieldValue));
     }
   }
 
   pub fn loadEntities(self: *Self, entities: []entityModule.Entity, err: *RuntimeError) !void {
     if (entities.len > MAX_ENTITIES) return error.StaticArrayTooSmall;
-    for (entities, 0..) |entity, i| {
+    var i: usize = 1; // 0 is world
+    while (i < entities.len) {
+      const entity = entities[i];
       // Do not load world twice
       const classname = entity.get("classname").?.toString() catch "NOCLASSNAME";
       if (std.mem.eql(u8, classname, "worldspawn")) continue;
       // Load fields
       const entityIndex = try Builtins.spawn(self, 0, 0);
-      self.entityOffsets[i] = entityIndex;
+      self.entityOffsets[i] = self.translateVMToEnt(entityIndex);
       try self.loadEntityFields(intCast(u32, self.translateEntToVM(entityIndex)), entity, err);
+      i += 1;
     }
   }
 
-  pub fn callConstructors(self: *Self, entities: []entityModule.Entity, err: *RuntimeError) !void {
-    for (entities) |entity| {
-      const classname = entity.get("classname").?.toString() catch {
-        _ = try std.fmt.bufPrint(&err.message, "Field classname is not a string {}", .{ entity });
-        return error.ClassnameNotAString;
-      };
+  pub fn callConstructors(self: *Self, err: *RuntimeError) !void {
+    for (self.entityOffsets) |entityIndex| {
+      // Retrieve the classname
+      const entity = @as(*Entity, @ptrCast(@alignCast(&self.mem32[entityIndex])));
+      const classnameIndex = self.getFieldIndexFromName("classname") orelse continue;
+      const classname = self.getString(entity.data[classnameIndex]);
+      // Retrieve the self deinition
       const selfDefinition = self.dat.?.getDefinitionByName("self") orelse {
-        _ = try std.fmt.bufPrint(&err.message,
+        _ = try std.fmt.bufPrintZ(&err.message,
           "no self definition. Without a self definition, constructors cannot be called.", .{});
         return error.ClassnameNotAString;
       };
+      // If there is a function defined with the class name then it is a constructor
       if (self.dat.?.getFunctionByName(classname)) |constructorFn| {
-        // set entity to self
-        self.write32(selfDefinition.globalIndex, intCast(u32, self.translateEntToVM(self.world)));
-        // goto funtion
+        // Constructor shoudn't be builtin
         std.debug.assert(constructorFn.entryPoint > 0);
+        // set entity to self
+        self.write32(selfDefinition.globalIndex, intCast(u32, self.translateEntToVM(entityIndex)));
+        // goto funtion
         self.pc = intCast(usize, constructorFn.entryPoint);
         try self.execute(err);
       } else std.log.warn("constructor {s} could not be found", .{ classname });
@@ -523,9 +532,9 @@ const VM = struct {
   // From a entityIndex (just a number really) and fieldIndex construct an
   // opaque number that will be used to identify this particular field of this
   // particular struct.
-  fn getFieldPtr(self: Self, err: *RuntimeError, entityIndex: u32, fieldIndex: u32) !u32 {
+  fn getFieldPtr(self: Self, entityIndex: u32, fieldIndex: u32, err: *RuntimeError) !u32 {
     if (fieldIndex >= self.maxFieldIndex) {
-      _ = try std.fmt.bufPrint(&err.message, "field index {} is out of bound (nb of fields: {})", .{
+      _ = try std.fmt.bufPrintZ(&err.message, "field index {} is out of bound (nb of fields: {})", .{
         fieldIndex, self.maxFieldIndex,
       });
       return error.RuntimeError;
@@ -671,7 +680,7 @@ const VM = struct {
         const fieldIndex = self.read32(statement.arg2);
         const dst = statement.arg3;
 
-        self.write32(dst, try self.getFieldPtr(err, entityIndex, fieldIndex));
+        self.write32(dst, try self.getFieldPtr(entityIndex, fieldIndex, err));
         self.pc += 1;
 
         return false;
@@ -906,12 +915,13 @@ const VM = struct {
       datModule.OpCode.LOAD_FNC => {
         const entityRef = statement.arg1;
         const fieldRef = statement.arg2;
+
         const dst = statement.arg3;
 
         const entityIndex = self.read32(entityRef);
         const fieldIndex = self.read32(fieldRef);
 
-        const fieldPtr = try self.getFieldPtr(err, entityIndex, fieldIndex);
+        const fieldPtr = try self.getFieldPtr(entityIndex, fieldIndex, err);
 
         self.write32(dst, self.read32ent(fieldPtr));
 
@@ -926,7 +936,7 @@ const VM = struct {
         const entityIndex = self.read32(entityRef);
         const fieldIndex = self.read32(fieldRef);
 
-        const fieldPtr = try self.getFieldPtr(err, entityIndex, fieldIndex);
+        const fieldPtr = try self.getFieldPtr(entityIndex, fieldIndex, err);
 
         self.write32(dst    , self.read32ent(fieldPtr    ));
         // TODO: Having to decrease memory here is a leaky abstraction
@@ -998,7 +1008,21 @@ const VM = struct {
         self.pc += 1;
         return false;
       },
-      datModule.OpCode.NOT_S => @panic("NOT_S unimplemented"),
+      datModule.OpCode.NOT_S => {
+        const src = statement.arg1;
+        const dst = statement.arg3;
+
+        const strptr = self.read32(src);
+
+        if (strptr == 0 or self.getString(strptr)[0] == 0) {
+          self.write32(dst, bitCast(u32, @as(f32, 1)));
+        } else {
+          self.write32(dst, 0);
+        }
+
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.NOT_FNC => @panic("NOT_FNC unimplemented"),
       datModule.OpCode.IF => { // untested
         if (self.read32(statement.arg1) != 0) {
