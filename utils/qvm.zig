@@ -74,26 +74,12 @@ pub const RuntimeError = struct {
 };
 
 const Entity = packed struct {
+  // TODO: Rework this and nbEntities
+  indexInOffsetList: usize,
   data: [*]u32,
 };
 
 const Builtins = struct {
-  pub fn spawn(vm: *VM, index: u32, argc: u32) !u32 {
-    _ = argc;
-    _ = index;
-    const allocator = vm.heapAllocator.allocator();
-    const entity = try allocator.create(Entity);
-    entity.data = (try allocator.alloc(u32, vm.maxFieldIndex + 1)).ptr;
-    // The VM expects memory to be initialized to 0. We already initialized the
-    // memory of the VM to zero but in debug mode, zig allocate with a known
-    // pattern for uninitialized access check.
-    var i: usize = 0;
-    while (i < vm.maxFieldIndex) { entity.data[i] = 0; i +=1; }
-    const entityIndex = (@intFromPtr(entity) - @intFromPtr(vm.mem.ptr)) / @sizeOf(u32);
-    const addr = intCast(u32, vm.translateEntToVM(entityIndex));
-    return addr;
-  }
-
   pub fn call(vm: *VM, index: u32, argc: u32) !void {
     switch (index) {
       1 => @panic("makevectors is not yet implemented"),
@@ -109,9 +95,17 @@ const Builtins = struct {
       12 => @panic("vlen is not yet implemented"),
       13 => @panic("vectoyaw is not yet implemented"),
       14 => { // spawn
-        vm.write32(@intFromEnum(CallRegisters.ReturnValue), try spawn(vm, index, argc));
+        const addr = intCast(u32, vm.translateVMToEnt(try vm.spawnEntity()));
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), addr);
       },
-      15 => @panic("remove is not yet implemented"),
+      15 => { // remove
+        const entityIndexVM = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        // Retrieve the index of the entity in the entity offset list from the entity itself
+        const entityIndex = vm.translateVMToEnt(entityIndexVM);
+        const entity: *Entity = @ptrCast(@alignCast(&vm.mem32[entityIndex]));
+        // Entity are removed by setting their pointer to world (0 in the VM memory space).
+        vm.entityOffsets[entity.indexInOffsetList] = vm.world;
+      },
       16 => @panic("traceline is not yet implemented"),
       17 => @panic("checkclient is not yet implemented"),
       18 => @panic("find is not yet implemented"),
@@ -284,6 +278,8 @@ const VM = struct {
   // The list of entity offset in memory
   // 0 is world
   entityOffsets: [MAX_ENTITIES]usize = [_]usize{ 0 } ** MAX_ENTITIES,
+  // TODO: Rework this indexInOffsetList
+  nbEntities: usize = 0,
   // Options provided at creation
   options: VMOptions,
 
@@ -408,15 +404,33 @@ const VM = struct {
   //   }
   // ```
   fn createWorld(self: *Self, world: entityModule.Entity, err: *RuntimeError) !void {
-    // self.world = try Builtins.spawn(self, 0, 0);
     // We can't rely on spawn which depends on the address to self.world
     const allocator = self.heapAllocator.allocator();
     const entity = try allocator.create(Entity);
     entity.data = (try allocator.alloc(u32, self.maxFieldIndex + 1)).ptr;
+    entity.indexInOffsetList = 0;
     const entityIndex = (@intFromPtr(entity) - @intFromPtr(self.mem.ptr)) / @sizeOf(u32);
     self.world = entityIndex;
-    self.entityOffsets[0] = self.world;
+    self.entityOffsets[self.nbEntities] = self.world;
+    self.nbEntities += 1;
     try self.loadEntityFields(intCast(u32, self.world), world, err);
+  }
+
+  fn spawnEntity(self: *Self) !usize {
+    const allocator = self.heapAllocator.allocator();
+    const entity = try allocator.create(Entity);
+    entity.data = (try allocator.alloc(u32, self.maxFieldIndex + 1)).ptr;
+    // The VM expects memory to be initialized to 0. We already initialized the
+    // memory of the VM to zero but in debug mode, zig allocate with a known
+    // pattern for uninitialized access check.
+    var i: usize = 0;
+    while (i < self.maxFieldIndex) { entity.data[i] = 0; i +=1; }
+    const entityIndex = (@intFromPtr(entity) - @intFromPtr(self.mem.ptr)) / @sizeOf(u32);
+    // Add the entity to the offset list
+    self.entityOffsets[self.nbEntities] = entityIndex;
+    entity.indexInOffsetList = self.nbEntities;
+    self.nbEntities += 1;
+    return entityIndex;
   }
 
   // Load all the entity's fields into memory.
@@ -452,17 +466,16 @@ const VM = struct {
 
   pub fn loadEntities(self: *Self, entities: []entityModule.Entity, err: *RuntimeError) !void {
     if (entities.len > MAX_ENTITIES) return error.StaticArrayTooSmall;
-    var i: usize = 1; // 0 is world
+    var i: usize = 0;
     while (i < entities.len) {
       const entity = entities[i];
+      i += 1;
       // Do not load world twice
       const classname = entity.get("classname").?.toString() catch "NOCLASSNAME";
       if (std.mem.eql(u8, classname, "worldspawn")) continue;
       // Load fields
-      const entityIndex = try Builtins.spawn(self, 0, 0);
-      self.entityOffsets[i] = self.translateVMToEnt(entityIndex);
-      try self.loadEntityFields(intCast(u32, self.translateEntToVM(entityIndex)), entity, err);
-      i += 1;
+      const entityIndex = try self.spawnEntity();
+      try self.loadEntityFields(intCast(u32, entityIndex), entity, err);
     }
   }
 
