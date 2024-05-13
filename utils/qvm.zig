@@ -182,7 +182,11 @@ const Builtins = struct {
       },
       69 => @panic("makestatic is not yet implemented"),
       70 => @panic("changelevel is not yet implemented"),
-      72 => @panic("cvar_set is not yet implemented"),
+      72 => { // cvar_set
+        const identifier = vm.getString(vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
+        const value = vm.getString(vm.mem32[@intFromEnum(CallRegisters.Parameter2)]);
+        try vm.cvars.put(vm.heapAllocator.allocator(), identifier, value);
+      },
       73 => @panic("centerprint is not yet implemented"),
       74 => @panic("ambientsound is not yet implemented"),
       75 => @panic("precache_model2 is not yet implemented"),
@@ -280,6 +284,8 @@ const VM = struct {
   entityOffsets: [MAX_ENTITIES]usize = [_]usize{ 0 } ** MAX_ENTITIES,
   // TODO: Rework this indexInOffsetList
   nbEntities: usize = 0,
+  // What are console variables?
+  cvars: std.StringHashMapUnmanaged([]const u8),
   // Options provided at creation
   options: VMOptions,
 
@@ -318,6 +324,7 @@ const VM = struct {
       .maxFieldIndex = 0,
       .heapAllocator = rfba.ReverseFixedBufferAllocator.init(mem),
       .world = intCast(u32, mem32.len), // If no BSP loaded, world is the end of the memory
+      .cvars = std.StringHashMapUnmanaged([]const u8){},
       .options = options,
     };
   }
