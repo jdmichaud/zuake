@@ -84,7 +84,11 @@ const Builtins = struct {
     switch (index) {
       1 => @panic("makevectors is not yet implemented"),
       2 => @panic("setorigin is not yet implemented"),
-      3 => @panic("setmodel is not yet implemented"),
+      3 => { // setmodel
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        std.log.warn("setmodel not implemented {s}", .{ path });
+      },
       4 => @panic("setsize is not yet implemented"),
       6 => @panic("break is not yet implemented"),
       7 => @panic("random is not yet implemented"),
@@ -110,16 +114,15 @@ const Builtins = struct {
       17 => @panic("checkclient is not yet implemented"),
       18 => @panic("find is not yet implemented"),
       19 => { // precache_sound
-        // Only try to open a file and prints with a warning if it fails
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        const data = misc.load(path) catch |err| {
-          try stderr.print("warning: {}, trying to open {s}\n", .{ err, path });
-          return;
-        };
-        vm.registerFile(path, data);
+        std.log.warn("precache_sound not implemented {s}", .{ path });
       },
-      20 => @panic("precache_model is not yet implemented"),
+      20 => { // precache_model
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        std.log.warn("precache_model not implemented {s}", .{ path });
+      },
       21 => @panic("stuffcmd is not yet implemented"),
       22 => @panic("findradius is not yet implemented"),
       23 => @panic("bprint is not yet implemented"),
@@ -175,12 +178,13 @@ const Builtins = struct {
       68 => { // precache_file
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        try stderr.print("warning: precache_file {s} ignored\n", .{ path });
-        // Apparently, this function does nothing.
-        // Returns the string pass to it.
-        vm.write32(@intFromEnum(CallRegisters.ReturnValue), vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
+        std.log.warn("precache_file not implemented {s}", .{ path });
       },
-      69 => @panic("makestatic is not yet implemented"),
+      69 => { // makestatic
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        std.log.warn("makestatic not implemented {s}", .{ path });
+      },
       70 => @panic("changelevel is not yet implemented"),
       72 => { // cvar_set
         const identifier = vm.getString(vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
@@ -188,16 +192,25 @@ const Builtins = struct {
         try vm.cvars.put(vm.heapAllocator.allocator(), identifier, value);
       },
       73 => @panic("centerprint is not yet implemented"),
-      74 => @panic("ambientsound is not yet implemented"),
-      75 => @panic("precache_model2 is not yet implemented"),
-      76 => @panic("precache_sound2 is not yet implemented"),
+      74 => { // ambientsound
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        std.log.warn("ambientsound not implemented {s}", .{ path });
+      },
+      75 => { // precache_model2
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        std.log.warn("precache_model2 not implemented {s}", .{ path });
+      },
+      76 => { // precache_sound2
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const path = vm.getString(strOffset);
+        std.log.warn("precache_sound2 not implemented {s}", .{ path });
+      },
       77 =>  { // precache_file2
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        try stderr.print("warning: precache_file2 {s} ignored\n", .{ path });
-        // Apparently, this function does nothing.
-        // Returns the string pass to it.
-        vm.write32(@intFromEnum(CallRegisters.ReturnValue), vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
+        std.log.warn("precache_file2 not implemented {s}", .{ path });
       },
       78 => @panic("setspawnparms is not yet implemented"),
       85 => @panic("stov is not yet implemented"),
@@ -460,7 +473,7 @@ const VM = struct {
       const fieldIndex = self.getFieldIndexFromName(fieldName) orelse {
         // _ = try std.fmt.bufPrintZ(&err.message, "Undeclared field name: {s}", .{ fieldName });
         // break :blk error.UnknownFieldName;
-        std.log.warn("Undeclared field name: {s}", .{ fieldName });
+        // std.log.warn("Undeclared field name: {s}", .{ fieldName });
         continue;
       };
 
