@@ -295,6 +295,22 @@ pub const Dat = struct {
   pub fn getString(self: Self, offset: u32) [:0]const u8 {
     return std.mem.span(@as([*:0]const u8, @ptrCast(self.strings[offset..])));
   }
+
+  pub fn getLocationFromStatement(self: Self, statementIndex: usize)
+    struct { filename: []const u8, function: []const u8 } {
+    var max: i32 = 0;
+    var maxFunction: Function = undefined;
+    for (self.functions) |function| {
+      if (function.entryPoint <= statementIndex and function.entryPoint > max) {
+        max = function.entryPoint;
+        maxFunction = function;
+      }
+    }
+    return .{
+      .filename = self.getString(maxFunction.fileOffset),
+      .function = self.getString(maxFunction.nameOffset),
+    };
+  }
 };
 
 pub fn main() !void {

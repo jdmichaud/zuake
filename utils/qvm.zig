@@ -467,7 +467,7 @@ const VM = struct {
         return error.ClassnameNotAString;
       };
       if (self.dat.?.getFunctionByName(classname)) |constructorFn| {
-        // set self to entity
+        // set entity to self
         self.write32(selfDefinition.globalIndex, intCast(u32, self.translateEntToVM(self.world)));
         // goto funtion
         std.debug.assert(constructorFn.entryPoint > 0);
@@ -638,7 +638,8 @@ const VM = struct {
   inline fn executeStatement(self: *Self, statement: datModule.Statement, err: *RuntimeError) !bool {
     self.instructionCount +=1;
     if (self.options.trace) {
-      try stdout.print("{s: <9} {: >5}[{: >8.6}] {: >5}[{: >8.6}] {: >5}[{: >8.6}] pc {} sp 0x{x} fp 0x{x}\n", .{
+      const location = self.dat.?.getLocationFromStatement(self.pc);
+      try stdout.print("{s: <11} {: >5}[{: >10.6}] {: >5}[{: >10.6}] {: >5}[{: >10.6}] pc {: >5} sp 0x{x} fp 0x{x} {s}({s})\n", .{
         @tagName(statement.opcode),
         statement.arg1, self.mem32[statement.arg1],
         statement.arg2, self.mem32[statement.arg2],
@@ -646,6 +647,8 @@ const VM = struct {
         self.pc,
         self.sp,
         self.fp,
+        location.filename,
+        location.function,
       });
     }
 
