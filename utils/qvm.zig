@@ -84,6 +84,11 @@ const Builtins = struct {
     const allocator = vm.heapAllocator.allocator();
     const entity = try allocator.create(Entity);
     entity.data = (try allocator.alloc(u32, vm.maxFieldIndex + 1)).ptr;
+    // The VM expects memory to be initialized to 0. We already initialized the
+    // memory of the VM to zero but in debug mode, zig allocate with a known
+    // pattern for uninitialized access check.
+    var i: usize = 0;
+    while (i < vm.maxFieldIndex) { entity.data[i] = 0; i +=1; }
     const entityIndex = (@intFromPtr(entity) - @intFromPtr(vm.mem.ptr)) / @sizeOf(u32);
     const addr = intCast(u32, vm.translateEntToVM(entityIndex));
     return addr;
