@@ -437,7 +437,7 @@ const VM = struct {
         },
       };
       const fieldIndex = self.getFieldIndexFromName(fieldName) orelse {
-        // _ = try std.fmt.bufPrint(&err.message, "Undeclared field name: {s}", .{ fieldName });
+        // _ = try std.fmt.bufPrintZ(&err.message, "Undeclared field name: {s}", .{ fieldName });
         // break :blk error.UnknownFieldName;
         std.log.warn("Undeclared field name: {s}", .{ fieldName });
         continue;
@@ -632,7 +632,7 @@ const VM = struct {
         self.pc += 1;
       }
     } else {
-      _ = try std.fmt.bufPrint(&err.message, "No function with index {}", .{ fnIndex });
+      _ = try std.fmt.bufPrintZ(&err.message, "No function with index {}", .{ fnIndex });
       return error.RuntimeError;
     }
   }
