@@ -10,6 +10,7 @@ const std = @import("std");
 const misc = @import("misc.zig");
 const clap = @import("clap.zig");
 const datModule = @import("dat.zig");
+const pakModule = @import("pak.zig");
 const bspModule = @import("bsp.zig");
 const entityModule = @import("entity.zig");
 const rfba = @import("reverse-fixed-buffer-allocator.zig");
@@ -116,12 +117,12 @@ const Builtins = struct {
       19 => { // precache_sound
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        std.log.warn("precache_sound not implemented {s}", .{ path });
+        _ = vm.filesystem.readFile(path);
       },
       20 => { // precache_model
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        std.log.warn("precache_model not implemented {s}", .{ path });
+        _ = vm.filesystem.readFile(path);
       },
       21 => @panic("stuffcmd is not yet implemented"),
       22 => @panic("findradius is not yet implemented"),
@@ -178,7 +179,7 @@ const Builtins = struct {
       68 => { // precache_file
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        std.log.warn("precache_file not implemented {s}", .{ path });
+        _ = vm.filesystem.readFile(path);
       },
       69 => { // makestatic
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
@@ -195,22 +196,22 @@ const Builtins = struct {
       74 => { // ambientsound
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        std.log.warn("ambientsound not implemented {s}", .{ path });
+        _ = vm.filesystem.readFile(path);
       },
       75 => { // precache_model2
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        std.log.warn("precache_model2 not implemented {s}", .{ path });
+        _ = vm.filesystem.readFile(path);
       },
       76 => { // precache_sound2
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        std.log.warn("precache_sound2 not implemented {s}", .{ path });
+        _ = vm.filesystem.readFile(path);
       },
       77 =>  { // precache_file2
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
         const path = vm.getString(strOffset);
-        std.log.warn("precache_file2 not implemented {s}", .{ path });
+        _ = vm.filesystem.readFile(path);
       },
       78 => @panic("setspawnparms is not yet implemented"),
       85 => @panic("stov is not yet implemented"),
@@ -345,6 +346,8 @@ const VM = struct {
   nbEntities: usize = 0,
   // What are console variables?
   cvars: std.StringHashMapUnmanaged([]const u8),
+  // An object used to retrieve content from the filesystem (most probably a pak file)
+  filesystem: Filesystem,
   // Options provided at creation
   options: VMOptions,
 
@@ -353,7 +356,7 @@ const VM = struct {
   functionCallCount: usize = 0,
   builtinCallCount: usize = 0,
 
-  pub fn init(allocator: std.mem.Allocator, options: VMOptions) !Self {
+  pub fn init(allocator: std.mem.Allocator, filesystem: Filesystem, options: VMOptions) !Self {
     // We make sure that memsize is divisible by @sizeOf(u32)
     const memsize: usize =
       @intFromFloat(@ceil(@as(f32, @floatFromInt(options.memsize)) / @sizeOf(u32)) * @sizeOf(u32));
@@ -384,6 +387,7 @@ const VM = struct {
       .heapAllocator = rfba.ReverseFixedBufferAllocator.init(mem),
       .world = intCast(u32, mem32.len), // If no BSP loaded, world is the end of the memory
       .cvars = std.StringHashMapUnmanaged([]const u8){},
+      .filesystem = filesystem,
       .options = options,
     };
   }
@@ -1191,6 +1195,37 @@ fn getMemorySize(args: clap.Args) !usize {
   } else 1024 * 1024 * 1; // 1Mb by default;
 }
 
+const Filesystem = struct {
+  const Self = @This();
+  entries: ?[]*align(1) const pakModule.EntryHeader,
+
+  pub fn readFile(self: Self, path: []const u8) []const u8 {
+    if (self.entries) |_| {
+      std.log.warn("readFileFromPak {s}", .{ path });
+      const buffer = [_]u8{ 0 } ** 1;
+      return &buffer;
+    } else {
+      std.log.warn("readFileStub {s}", .{ path });
+      const buffer = [_]u8{ 0 } ** 1;
+      return &buffer;
+    }
+  }
+};
+
+const FileType = enum {
+  DatFile,
+  PakFile,
+  Unknown,
+};
+
+fn getFileType(buffer: []const u8) FileType {
+  return if (std.mem.eql(u8, buffer[0..4], "PACK"))
+    FileType.PakFile
+  else if (std.mem.eql(u8, buffer[0..4], &.{ 6, 0, 0, 0 }))
+    FileType.DatFile
+  else FileType.Unknown;
+}
+
 pub fn main() !u8 {
   var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
   const allocator = general_purpose_allocator.allocator();
@@ -1232,21 +1267,52 @@ pub fn main() !u8 {
   }).parse(args);
 
   const memsize = try getMemorySize(parsedArgs);
+  const filepath = parsedArgs.arguments.items[0];
+
   // Create the VM
   var vm = try VM.init(allocator, .{
+    .entries = null,
+  }, .{
     .trace = parsedArgs.getSwitch("trace"),
     .memsize = memsize,
     .verbose = parsedArgs.getSwitch("verbose"),
   });
   defer vm.deinit();
-  // Load the dat file
-  const datfilepath = parsedArgs.arguments.items[0];
-  const buffer = misc.load(datfilepath) catch |err| {
-    try stderr.print("error: {}, trying to open {s}\n", .{ err, datfilepath });
+  // Load the file passed as arguments
+  const buffer = misc.load(filepath) catch |err| {
+    try stderr.print("error: {}, trying to open {s}\n", .{ err, filepath });
     std.posix.exit(1);
   };
   defer std.posix.munmap(buffer);
-  var dat = datModule.Dat.init(allocator, buffer) catch |err| {
+  // If we are passed a PakFile, load it, replace the readFile stub and return
+  // the buffer to the dat file (progs.dat).
+  // If we are passed a DatFile, just return the buffer.
+  const bufferSplit = switch (getFileType(buffer)) {
+    FileType.DatFile => blk: {
+      break :blk .{ buffer, null };
+    },
+    FileType.PakFile => blk: {
+      const entries = try pakModule.loadPak(allocator, buffer);
+      // If we are provided a pak file, replace the stub for readFile
+      vm.filesystem = Filesystem{ .entries = entries };
+      for (entries) |file| {
+        if (std.mem.eql(u8, file.pathname[0.."progs.dat".len], "progs.dat")) {
+          break :blk .{ buffer[file.offset..file.offset + file.size], entries };
+        }
+      }
+      try stderr.print("error: pak file does not contain a progs.dat entry", .{});
+      std.posix.exit(1);
+    },
+    FileType.Unknown => {
+      try stderr.print("error: unrecognized file format: expecting either a dat file or a pak file", .{});
+      std.posix.exit(1);
+    },
+  };
+  defer {
+    if (bufferSplit[1]) |entries| allocator.free(entries);
+  }
+  // Load the dat buffer
+  var dat = datModule.Dat.init(allocator, bufferSplit[0]) catch |err| {
     return err;
   };
   defer dat.deinit(allocator);
@@ -1255,6 +1321,7 @@ pub fn main() !u8 {
     std.posix.exit(1);
   }
   try vm.loadDat(dat);
+
   var err = RuntimeError{};
   // Load a BSP file if provided.
   // This piece of code it quite contrived and should probably be revised.
