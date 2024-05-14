@@ -269,6 +269,52 @@ const VM = struct {
   //                                              <- entity X
   //  functions                heap               <-  world's fields
   //  -------------------      ------------------ <- world
+  //
+  //  The memory model of the VM is designed to:
+  //  1. Use as little space as possible
+  //  2. Limit segmentation (we get everything in only one memory buffer ideally)
+  //  3. Have the world entity address at 0 (from the point of view of the VM)
+  //  This is achieved by:
+  //  - Having all static data from the dat are mmaped from the file and used as
+  //    is except the global area which read/write.
+  //  - Loading the globals from the dat file directly at address 0. So all
+  //    global indices corresponds to the index in memory without any
+  //    translation.
+  //  - Stack data (saved PC and SP registers, string allocated by builtings)
+  //    are stored in the regions after the global. The stackOffset indicates
+  //    where that region starts. The SP and FP register points at stackOffset
+  //    initially and on each function call, the current SP is stored on the
+  //    stack, the FP points to that saved SP and the SP is then moved to the
+  //    next available slot. The strings allocated by the builtins are available
+  //    only in the current function call so they are store on the stack. When
+  //    we return from a function and the PC, SP and FP are restored, those
+  //    strings are still present but they can be overwritten at any time. This
+  //    is expected by the QuakeC code. Finally, entity strings are also loaded
+  //    at the beginning of the stack before the first function call so they are
+  //    never overwritten and can be considered static.
+  //  - Finally, the heap is where dynamic allocation occurs. The entities and
+  //    their data are stored there and a allocator is used to keep track of
+  //    allocation. The allocator allocate starting at the bottom of the heap.
+  //    All data from the heap (which is currently used only for entities) goes
+  //    through an address translation so that, from the VM perspective, the
+  //    heap data is in another segment with the allocation going from 0
+  //    increasing. The world entity is the first allocated and all translation
+  //    starts with the address of the world entity (which is not necessarily
+  //    the bottom of the address space due to alignment). As a consequnce, from
+  //    the VM perspective, the world's address it 0 which is expected in the
+  //    QuaceC code as the condition `if (world)` is always false and world is
+  //    returned by builtins as meaning "no entity".
+  //  As strings can be stored at multiple places (either static string in the
+  //  dat file or string in the stack) the `getString` of the VM implement a
+  //  scheme that allows to automatically fetch the string where it is stored.
+  //  From the VM point of view, string from static data keep have their
+  //  original addresses. But string stored in the VM memory have an offset
+  //  added. The offset is the stringAddress + stringOffset in the original dat.
+  //  `getString` will detect that the address provided for a string is higher
+  //  than the possible static string address and will subtract the offset and
+  //  fetch the string in the VM memory instead of the dat file. From the point
+  //  of view of the VM all the strings are in a linear address space where in
+  //  reality, some of them are the dat file and some are in the VM memory.
   mem: []u8,
   // Same as mem but in 32bits for convenience
   mem32: []u32,
