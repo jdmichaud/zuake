@@ -81,18 +81,23 @@ const Entity = packed struct {
 };
 
 const Builtins = struct {
+  var random = std.rand.DefaultPrng.init(0);
+
   pub fn call(vm: *VM, index: u32, argc: u32) !void {
     switch (index) {
       1 => @panic("makevectors is not yet implemented"),
       2 => @panic("setorigin is not yet implemented"),
       3 => { // setmodel
-        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const entity = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter2)];
         const path = vm.getString(strOffset);
-        std.log.warn("setmodel not implemented {s}", .{ path });
+        std.log.warn("setmodel is not yet implemented {} {s}", .{ entity, path });
       },
       4 => @panic("setsize is not yet implemented"),
       6 => @panic("break is not yet implemented"),
-      7 => @panic("random is not yet implemented"),
+      7 => {
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), bitCast(u32, random.random().float(f32)));
+      },
       8 => @panic("sound is not yet implemented"),
       9 => @panic("normalize is not yet implemented"),
       10 => @panic("error is not yet implemented"),
@@ -149,7 +154,9 @@ const Builtins = struct {
       31 => @panic("eprint is not yet implemented"),
       32 => @panic("walkmove is not yet implemented"),
       34 => @panic("droptofloor is not yet implemented"),
-      35 => @panic("lightstyle is not yet implemented"),
+      35 => { // lightstyle
+        std.log.warn("lightstyle not yet implemented", .{});
+      },
       36 => @panic("rint is not yet implemented"),
       37 => @panic("floor is not yet implemented"),
       38 => @panic("ceil is not yet implemented"),
@@ -177,14 +184,12 @@ const Builtins = struct {
       },
       67 => @panic("movetogoal is not yet implemented"),
       68 => { // precache_file
+        // Do nothing and return the path
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
-        const path = vm.getString(strOffset);
-        _ = vm.filesystem.readFile(path);
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), strOffset);
       },
       69 => { // makestatic
-        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
-        const path = vm.getString(strOffset);
-        std.log.warn("makestatic not implemented {s}", .{ path });
+        std.log.warn("makestatic is not yet implemented", .{});
       },
       70 => @panic("changelevel is not yet implemented"),
       72 => { // cvar_set
@@ -194,9 +199,16 @@ const Builtins = struct {
       },
       73 => @panic("centerprint is not yet implemented"),
       74 => { // ambientsound
-        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
-        const path = vm.getString(strOffset);
-        _ = vm.filesystem.readFile(path);
+        const p1index = @intFromEnum(CallRegisters.Parameter1);
+        std.log.debug("{} {} {}", .{ vm.mem32[p1index], vm.mem32[p1index + 1], vm.mem32[p1index + 2] });
+        const position: @Vector(3, f32) = @as(*const [3]f32, @ptrCast(&vm.mem32[p1index..p1index + 3])).*;
+        const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter2)];
+        const wavFile = vm.getString(strOffset);
+        const volume = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter3)]);
+        const attenuation = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter4)]);
+        std.log.warn("ambientsound is not yet implemented {} {s} {} {}", .{
+          position, wavFile, volume, attenuation,
+        });
       },
       75 => { // precache_model2
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
