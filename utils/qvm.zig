@@ -414,6 +414,13 @@ const VM = struct {
     self.* = undefined;
   }
 
+  pub fn coreDump(self: Self, corefile: []const u8) !void {
+    const file = try std.fs.cwd().createFile(corefile, .{ .read = true });
+    defer file.close();
+    try file.writeAll(self.mem);
+    try stdout.print("core dumped: {s}", .{ corefile });
+  }
+
   // Load a dat file and set the various pointers.
   pub fn loadDat(self: *Self, dat: datModule.Dat) !void {
     // Check that the global are less than the allocated memory and reserving
@@ -1345,6 +1352,7 @@ pub fn main() !u8 {
     var bsp = try bspModule.Bsp.init(allocator, bspBuffer);
     errdefer bsp.deinit(allocator);
     vm.loadBsp(bsp, &err) catch |e| {
+      vm.coreDump("core.dump") catch {};
       return switch (e) {
         // error.UnknownFieldName,
         error.RuntimeError => {
@@ -1366,6 +1374,7 @@ pub fn main() !u8 {
   if (parsedArgs.getSwitch("jump-to")) {
     const functionName = parsedArgs.getOption([]const u8, "jump-to") orelse "main";
     vm.runFunction(functionName, &err) catch |e| {
+      vm.coreDump("core.dump") catch {};
       return switch (e) {
         error.RuntimeError => {
           try stderr.print("error: {s}\n", .{ err.message });
