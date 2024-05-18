@@ -200,13 +200,16 @@ const Builtins = struct {
       73 => @panic("centerprint is not yet implemented"),
       74 => { // ambientsound
         const p1index = @intFromEnum(CallRegisters.Parameter1);
-        std.log.debug("{} {} {}", .{ vm.mem32[p1index], vm.mem32[p1index + 1], vm.mem32[p1index + 2] });
-        const position: @Vector(3, f32) = @as(*const [3]f32, @ptrCast(&vm.mem32[p1index..p1index + 3])).*;
+        const position: @Vector(3, f32) = .{
+          bitCast(f32, vm.mem32[p1index    ]),
+          bitCast(f32, vm.mem32[p1index + 1]),
+          bitCast(f32, vm.mem32[p1index + 2]),
+        };
         const strOffset = vm.mem32[@intFromEnum(CallRegisters.Parameter2)];
         const wavFile = vm.getString(strOffset);
         const volume = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter3)]);
         const attenuation = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter4)]);
-        std.log.warn("ambientsound is not yet implemented {} {s} {} {}", .{
+        std.log.warn("ambientsound is not yet implemented {d} {s} {d} {d}", .{
           position, wavFile, volume, attenuation,
         });
       },
@@ -531,14 +534,6 @@ const VM = struct {
     var it = entity.iterator();
     while (it.next()) |entry| {
       const fieldName = entry.key_ptr.*;
-      const fieldValue = switch (entry.value_ptr.value) {
-        .String => |s| blk: {
-          break :blk try self.pushString("{s}", .{ s });
-        },
-        .Float => |f| blk: {
-          break :blk bitCast(u32, f);
-        },
-      };
       const fieldIndex = self.getFieldIndexFromName(fieldName) orelse {
         // _ = try std.fmt.bufPrintZ(&err.message, "Undeclared field name: {s}", .{ fieldName });
         // break :blk error.UnknownFieldName;
@@ -549,7 +544,24 @@ const VM = struct {
       const fieldPtr = try self.getFieldPtr(intCast(u32, self.translateEntToVM(entityIndex)),
         fieldIndex, err);
 
-      self.write32ent(fieldPtr, intCast(u32, fieldValue));
+      switch (entry.value_ptr.value) {
+        .String => |s| {
+          const value = try self.pushString("{s}", .{ s });
+          self.write32ent(fieldPtr, intCast(u32, value));
+        },
+        .Float => |f| {
+          const value = bitCast(u32, f);
+          self.write32ent(fieldPtr, value);
+        },
+        .Vector => |v| {
+          const x = bitCast(u32, v[0]);
+          self.write32ent(fieldPtr, x);
+          const y = bitCast(u32, v[1]);
+          self.write32ent(fieldPtr - 1, y);
+          const z =  bitCast(u32, v[2]);
+          self.write32ent(fieldPtr - 2, z);
+        },
+      }
     }
   }
 
