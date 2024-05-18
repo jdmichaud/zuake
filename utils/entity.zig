@@ -30,11 +30,13 @@ fn load(pathname: []const u8) ![]align(4096) const u8 {
 
 pub const EntityValueE = enum {
   Float,
+  Vector,
   String,
 };
 
 pub const EntityValue = union(EntityValueE) {
   Float: f32,
+  Vector: @Vector(3, f32),
   String: []const u8,
 };
 
@@ -64,6 +66,7 @@ pub const EntityField = struct {
     }
   }
 };
+
 
 pub const Entity = std.StringHashMap(EntityField);
 
@@ -131,10 +134,14 @@ pub const EntityList = struct {
           if (c == '"') {
             state = State.LOOKING_FOR_KEY;
             const str = try value.toOwnedSlice();
-            const floatValueTry = std.fmt.parseFloat(f32, str);
+            const floatValueTry = std.fmt.parseFloat(f32, str) catch null;
+            const vectorValueTry = parseVector(str);
             const entityValue = if (floatValueTry) |floatValue| blk: {
               allocator.free(str);
               break :blk EntityValue{ .Float = floatValue };
+            } else if (vectorValueTry) |vectorValue| blk: {
+              allocator.free(str);
+              break :blk EntityValue{ .Vector = vectorValue };
             } else |_| EntityValue{ .String = str };
             try entity.put(try key.toOwnedSlice(), EntityField {
               .value = entityValue,
@@ -180,6 +187,20 @@ pub const EntityList = struct {
     }
 
     return null;
+  }
+
+  pub fn parseVector(str: []const u8) !@Vector(3, f32) {
+    var it = std.mem.splitScalar(u8, str, ' ');
+    var part = it.next();
+    const x = if (part) |p|
+      std.fmt.parseFloat(f32, p) catch return error.NotAVector else return error.NotAVector;
+    part = it.next();
+    const y = if (part) |p|
+      std.fmt.parseFloat(f32, p) catch return error.NotAVector else return error.NotAVector;
+    part = it.next();
+    const z = if (part) |p|
+      std.fmt.parseFloat(f32, p) catch return error.NotAVector else return error.NotAVector;
+    return @Vector(3, f32){ x, y, z };
   }
 };
 
