@@ -83,9 +83,60 @@ const Entity = packed struct {
 const Builtins = struct {
   var random = std.rand.DefaultPrng.init(0);
 
+  const Angles = enum(u8) {
+    // up / down
+    PITCH = 0,
+    // left / right
+    YAW = 1,
+    // fall over
+    ROLL = 2,
+  };
+
   pub fn call(vm: *VM, index: u32, argc: u32) !void {
     switch (index) {
-      1 => @panic("makevectors is not yet implemented"),
+      1 => {
+        // from a vector containing 3 angles (yaw, pitch, roll) compute 3
+        // vectors: v_forward, v_up and v_right. These three vectors are globals
+        // in the VM.
+        // Yaw is the rotation about the z axis (between -180 and 180)
+        // Pitch is the rotations about the y axis (between -90 and 90 deg)
+        // Roll is the rotation about the x axis (between -180 and 180 deg)
+        // So if we define the rotation matrix of those angles as Rx, Ry and Rz.
+        // To get the vectors we need to multiply them by the unit vectors:
+        // v_forward = RzRyRx[1, 0, 0]
+        // v_up = RzRyRx[0, 1, 0]
+        // v_right = RzRyRx[0, 0, 1]
+        // ref:
+        //   https://quakewiki.org/wiki/makevectors
+        //   https://forums.insideqc.com/viewtopic.php?p=53892&sid=201ecf3bb7860db0d5eaa3dfd2078d56#p53892
+        //   https://en.wikipedia.org/wiki/Euler_angles#Tait.E2.80.93Bryan_angles
+        const paramOffset = @intFromEnum(CallRegisters.Parameter1);
+        const convertToRad = (std.math.pi * 2.0 / 360.0);
+        const angleYaw = bitCast(f32, vm.mem32[paramOffset + @intFromEnum(Angles.YAW)]) * convertToRad;
+        const anglePitch = bitCast(f32, vm.mem32[paramOffset + @intFromEnum(Angles.PITCH)]) * convertToRad;
+        const angleRoll = bitCast(f32, vm.mem32[paramOffset + @intFromEnum(Angles.ROLL)]) * convertToRad;
+        const sy = std.math.sin(angleYaw);
+        const cy = std.math.cos(angleYaw);
+        const sp = std.math.sin(anglePitch);
+        const cp = std.math.cos(anglePitch);
+        const sr = std.math.sin(angleRoll);
+        const cr = std.math.cos(angleRoll);
+        const v_forward = vm.dat.?.getDefinitionByName("v_forward") orelse unreachable;
+        var forward = vm.mem32[v_forward.globalIndex..];
+        forward[0] = bitCast(u32,  cp * cy);
+        forward[1] = bitCast(u32,  cp * sy);
+        forward[2] = bitCast(u32, -sp);
+        const v_right = vm.dat.?.getDefinitionByName("v_right") orelse unreachable;
+        var right = vm.mem32[v_right.globalIndex..];
+        right[0] = bitCast(u32, -1 * sr * sp * cy + -1 * cr * -sy);
+        right[1] = bitCast(u32, -1 * sr * sp * sy + -1 * cr *  cy);
+        right[2] = bitCast(u32, -1 * sr * cp);
+        const v_up = vm.dat.?.getDefinitionByName("v_up") orelse unreachable;
+        var up = vm.mem32[v_up.globalIndex..];
+        up[0] = bitCast(u32, cr * sp * cy + -sr * -sy);
+        up[1] = bitCast(u32, cr * sp * sy + -sr *  cy);
+        up[2] = bitCast(u32, cr * cp);
+      },
       2 => @panic("setorigin is not yet implemented"),
       3 => { // setmodel
         const entity = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
