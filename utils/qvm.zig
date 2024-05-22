@@ -782,6 +782,13 @@ const VM = struct {
 
     switch (statement.opcode) {
       datModule.OpCode.DONE => {
+        if (self.fp != self.stackOffset * @sizeOf(u32)) {
+          // If the stack is not at the bottom of the memory, restore the
+          // previous the fp and sp registers.
+          self.sp = self.fp;
+          self.fp = self.read32(self.sp / @sizeOf(u32));
+          self.sp -= @sizeOf(u32);
+        }
         return true;
       },
       datModule.OpCode.STATE => @panic("STATE unimplemented"),
