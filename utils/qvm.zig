@@ -594,9 +594,12 @@ const VM = struct {
       };
       // If there is a function defined with the class name then it is a constructor
       if (self.dat.?.getFunctionByName(classname)) |constructorFn| {
-        // Constructor shoudn't be builtin
+        // Constructor shoudn't be a builtin
         std.debug.assert(constructorFn.entryPoint > 0);
         // set entity to self
+        if (self.options.verbose) {
+          try stdout.print("calling entity contructor {s}\n", .{ classname });
+        }
         self.write32(selfDefinition.globalIndex, intCast(u32, self.translateEntToVM(entityIndex)));
         // goto funtion
         self.pc = intCast(usize, constructorFn.entryPoint);
