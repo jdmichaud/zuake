@@ -750,11 +750,38 @@ const VM = struct {
   }
 
   // Set the global time variable to the current time
-  fn setTimeVariable(self: Self) !void {
+  pub fn setTimeVariable(self: Self) !void {
     const timeDefinition = self.dat.?.getDefinitionByName("time") orelse {
-      return error.ClassnameNotAString;
+      return error.UnknownVariable;
     };
     self.write32(timeDefinition.globalIndex, bitCast(u32, self.getTime()));
+  }
+
+  pub fn setVariable(self: *Self, variableName: []const u8, value: entityModule.EntityValue,
+    err: *RuntimeError) !void {
+    const varDefinition = self.dat.?.getDefinitionByName(variableName) orelse {
+      _ = try std.fmt.bufPrintZ(&err.message, "Variable {s} not defined.", .{ variableName });
+      return error.UnknownVariable;
+    };
+
+    switch (value) {
+      .String => |s| {
+        const uvalue = try self.pushString("{s}", .{ s });
+        self.write32(varDefinition.globalIndex, intCast(u32, uvalue));
+      },
+      .Float => |f| {
+        const uvalue = bitCast(u32, f);
+        self.write32(varDefinition.globalIndex, uvalue);
+      },
+      .Vector => |v| {
+        const x = bitCast(u32, v[0]);
+        self.write32(varDefinition.globalIndex, x);
+        const y = bitCast(u32, v[1]);
+        self.write32(varDefinition.globalIndex + 1, y);
+        const z =  bitCast(u32, v[2]);
+        self.write32(varDefinition.globalIndex + 2, z);
+      },
+    }
   }
 
   fn getFieldIndexFromName(self: Self, fieldName: []const u8) ?u32 {
@@ -877,9 +904,6 @@ const VM = struct {
 
   pub fn execute(self: *Self, err: *RuntimeError) !void {
     const startInstructionCount = self.instructionCount;
-    // Set the time variable for the next VM execution.
-    // If the variable does not exists, do nothing.
-    self.setTimeVariable() catch {};
     while (true) {
       const statement = self.dat.?.statements[self.pc];
       const done = try self.executeStatement(statement, err);
@@ -1407,6 +1431,15 @@ fn getFileType(buffer: []const u8) FileType {
   else FileType.Unknown;
 }
 
+pub fn eventloop(vm: *VM, err: *RuntimeError) !bool {
+  try vm.setVariable("self", .{ .Float = 0 }, err);
+  try vm.setVariable("other", .{ .Float = 0 }, err);
+  try vm.setTimeVariable();
+
+  try vm.runFunction("StartFrame", err);
+  return true;
+}
+
 pub fn main() !u8 {
   var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
   const allocator = general_purpose_allocator.allocator();
@@ -1444,6 +1477,10 @@ pub fn main() !u8 {
       .long = "bsp-file",
       .arg = .{ .name = "bspfile", .type = []const u8 },
       .help = "Load a BSP file",
+    }, .{
+      .short = "r",
+      .long = "run",
+      .help = "Run the event loop (triggering the nextthink timers)",
     } },
   }).parse(args);
 
@@ -1545,6 +1582,11 @@ pub fn main() !u8 {
         else => return e,
       };
     };
+  }
+  // Run the loop
+  var run = parsedArgs.getSwitch("run");
+  while (run) {
+    run = try eventloop(&vm, &err);
   }
   // bitCast the u32 into its f32 then convert it to u8.
   return @as(u8, @intFromFloat(@as(f32, @bitCast(vm.mem32[@intFromEnum(CallRegisters.ReturnValue)]))));
