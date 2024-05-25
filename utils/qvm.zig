@@ -444,6 +444,8 @@ const VM = struct {
   cvars: std.StringHashMapUnmanaged([]const u8),
   // An object used to retrieve content from the filesystem (most probably a pak file)
   filesystem: Filesystem,
+  // Time at which the VM is instantiated in milli seconds
+  startTime: i64,
   // Options provided at creation
   options: VMOptions,
 
@@ -484,6 +486,7 @@ const VM = struct {
       .world = intCast(u32, mem32.len), // If no BSP loaded, world is the end of the memory
       .cvars = std.StringHashMapUnmanaged([]const u8){},
       .filesystem = filesystem,
+      .startTime = std.time.milliTimestamp(),
       .options = options,
     };
   }
@@ -731,8 +734,16 @@ const VM = struct {
   }
 
   inline fn getTime(self: Self) f32 {
-    _ = self;
-    return 0;
+    const fstartTime = @as(f32, @floatFromInt(self.startTime));
+    return (@as(f32, @floatFromInt(std.time.milliTimestamp())) - fstartTime) / 1000;
+  }
+
+  // Set the global time variable to the current time
+  fn setTimeVariable(self: Self) !void {
+    const timeDefinition = self.dat.?.getDefinitionByName("time") orelse {
+      return error.ClassnameNotAString;
+    };
+    self.write32(timeDefinition.globalIndex, bitCast(u32, self.getTime()));
   }
 
   fn getFieldIndexFromName(self: Self, fieldName: []const u8) ?u32 {
@@ -855,6 +866,9 @@ const VM = struct {
 
   pub fn execute(self: *Self, err: *RuntimeError) !void {
     const startInstructionCount = self.instructionCount;
+    // Set the time variable for the next VM execution.
+    // If the variable does not exists, do nothing.
+    self.setTimeVariable() catch {};
     while (true) {
       const statement = self.dat.?.statements[self.pc];
       const done = try self.executeStatement(statement, err);
