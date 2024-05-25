@@ -1,0 +1,9 @@
+cmd: --jump-to main
+file: builtin-makevectors.dat
+exit: 0
+output:
+0 0 0 OK
+90 0 0 OK
+0 90 0 OK
+0 0 90 OK
+45 45 45 OK
