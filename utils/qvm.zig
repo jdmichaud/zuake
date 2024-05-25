@@ -165,7 +165,18 @@ const Builtins = struct {
       7 => {
         vm.write32(@intFromEnum(CallRegisters.ReturnValue), bitCast(u32, random.random().float(f32)));
       },
-      8 => @panic("sound is not yet implemented"),
+      8 => {
+        const entityIndexVM = vm.read32(@intFromEnum(CallRegisters.Parameter1)); // entity
+        // Retrieve the index of the entity in the entity offset list from the entity itself
+        const entityIndex = intCast(u32, vm.translateVMToEnt(entityIndexVM));
+        const channel: f32 = @bitCast(vm.read32(@intFromEnum(CallRegisters.Parameter2))); // float
+        const soundPath = vm.getString(vm.read32(@intFromEnum(CallRegisters.Parameter3))); // string
+        const volume: f32 = @bitCast(vm.read32(@intFromEnum(CallRegisters.Parameter4))); // float
+        const attenuation: f32 = @bitCast(vm.read32(@intFromEnum(CallRegisters.Parameter5))); // float
+        std.log.debug("sound is not yet implemented e {} channel {d} soundPath {s} volume {d} attenuation {d}", .{
+          entityIndex, channel, soundPath, volume, attenuation,
+        });
+      },
       9 => @panic("normalize is not yet implemented"),
       10 => @panic("error is not yet implemented"),
       11 => @panic("objerror is not yet implemented"),
