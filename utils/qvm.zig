@@ -144,7 +144,28 @@ const Builtins = struct {
         const path = vm.getString(strOffset);
         std.log.warn("setmodel is not yet implemented {} {s}", .{ entity, path });
       },
-      4 => @panic("setsize is not yet implemented"),
+      4 => { // setsize
+        const entityIndexVM = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        // Retrieve the mins and maxs vector
+        const mins_x = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter2)    ]);
+        const mins_y = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter2) + 1]);
+        const mins_z = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter2) + 2]);
+        const maxs_x = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter3)    ]);
+        const maxs_y = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter3) + 1]);
+        const maxs_z = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter3) + 2]);
+        if (mins_x > maxs_x or mins_y > maxs_y or mins_z > maxs_z) return error.MinsAboveMaxs;
+        var err = RuntimeError{}; // TODO: ignored for now
+        const minsField = vm.getFieldIndexFromName("mins") orelse return error.NoSuchField;
+        const minsFieldPtr = try vm.getFieldPtr(entityIndexVM, minsField, &err);
+        const maxsField = vm.getFieldIndexFromName("maxs") orelse return error.NoSuchField;
+        const maxsFieldPtr = try vm.getFieldPtr(entityIndexVM, maxsField, &err);
+        vm.write32ent(minsFieldPtr    , bitCast(u32, mins_x));
+        vm.write32ent(minsFieldPtr - 1, bitCast(u32, mins_y));
+        vm.write32ent(minsFieldPtr - 2, bitCast(u32, mins_z));
+        vm.write32ent(maxsFieldPtr    , bitCast(u32, maxs_x));
+        vm.write32ent(maxsFieldPtr - 1, bitCast(u32, maxs_y));
+        vm.write32ent(maxsFieldPtr - 2, bitCast(u32, maxs_z));
+      },
       6 => @panic("break is not yet implemented"),
       7 => {
         vm.write32(@intFromEnum(CallRegisters.ReturnValue), bitCast(u32, random.random().float(f32)));
@@ -703,6 +724,7 @@ const VM = struct {
   // From a entityIndex (just a number really) and fieldIndex construct an
   // opaque number that will be used to identify this particular field of this
   // particular struct.
+  // entityIndex is a the index as used in the VM, not the index in the memory array.
   fn getFieldPtr(self: Self, entityIndex: u32, fieldIndex: u32, err: *RuntimeError) !u32 {
     if (fieldIndex >= self.maxFieldIndex) {
       _ = try std.fmt.bufPrintZ(&err.message, "field index {} is out of bound (nb of fields: {})", .{

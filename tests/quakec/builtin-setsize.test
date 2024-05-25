@@ -1,0 +1,5 @@
+cmd: --jump-to main
+file: builtin-setsize.dat
+exit: 0
+output:
+builtin-setsize OK
