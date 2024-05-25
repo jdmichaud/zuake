@@ -146,6 +146,8 @@ const Builtins = struct {
       },
       4 => { // setsize
         const entityIndexVM = vm.mem32[@intFromEnum(CallRegisters.Parameter1)];
+        // Retrieve the index of the entity in the entity offset list from the entity itself
+        const entityIndex = intCast(u32, vm.translateVMToEnt(entityIndexVM));
         // Retrieve the mins and maxs vector
         const mins_x = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter2)    ]);
         const mins_y = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter2) + 1]);
@@ -155,16 +157,9 @@ const Builtins = struct {
         const maxs_z = bitCast(f32, vm.mem32[@intFromEnum(CallRegisters.Parameter3) + 2]);
         if (mins_x > maxs_x or mins_y > maxs_y or mins_z > maxs_z) return error.MinsAboveMaxs;
         var err = RuntimeError{}; // TODO: ignored for now
-        const minsField = vm.getFieldIndexFromName("mins") orelse return error.NoSuchField;
-        const minsFieldPtr = try vm.getFieldPtr(entityIndexVM, minsField, &err);
-        const maxsField = vm.getFieldIndexFromName("maxs") orelse return error.NoSuchField;
-        const maxsFieldPtr = try vm.getFieldPtr(entityIndexVM, maxsField, &err);
-        vm.write32ent(minsFieldPtr    , bitCast(u32, mins_x));
-        vm.write32ent(minsFieldPtr - 1, bitCast(u32, mins_y));
-        vm.write32ent(minsFieldPtr - 2, bitCast(u32, mins_z));
-        vm.write32ent(maxsFieldPtr    , bitCast(u32, maxs_x));
-        vm.write32ent(maxsFieldPtr - 1, bitCast(u32, maxs_y));
-        vm.write32ent(maxsFieldPtr - 2, bitCast(u32, maxs_z));
+
+        try vm.setEntityField(entityIndex, "mins", .{ .Vector = .{ mins_x, mins_y, mins_z } }, &err);
+        try vm.setEntityField(entityIndex, "maxs", .{ .Vector = .{ maxs_x, maxs_y, maxs_z } }, &err);
       },
       6 => @panic("break is not yet implemented"),
       7 => {
@@ -600,6 +595,37 @@ const VM = struct {
     return entityIndex;
   }
 
+  pub fn setEntityField(self: *Self, entityIndex: u32, fieldName: []const u8,
+    value: entityModule.EntityValue, err: *RuntimeError) !void {
+
+    const fieldIndex = try (self.getFieldIndexFromName(fieldName) orelse blk: {
+      _ = try std.fmt.bufPrintZ(&err.message, "Undeclared field name: {s}", .{ fieldName });
+      break :blk error.UnknownFieldName;
+    });
+
+    const fieldPtr = try self.getFieldPtr(intCast(u32, self.translateEntToVM(entityIndex)),
+      fieldIndex, err);
+
+    switch (value) {
+      .String => |s| {
+        const uvalue = try self.pushString("{s}", .{ s });
+        self.write32ent(fieldPtr, intCast(u32, uvalue));
+      },
+      .Float => |f| {
+        const uvalue = bitCast(u32, f);
+        self.write32ent(fieldPtr, uvalue);
+      },
+      .Vector => |v| {
+        const x = bitCast(u32, v[0]);
+        self.write32ent(fieldPtr, x);
+        const y = bitCast(u32, v[1]);
+        self.write32ent(fieldPtr - 1, y);
+        const z =  bitCast(u32, v[2]);
+        self.write32ent(fieldPtr - 2, z);
+      },
+    }
+  }
+
   // Load all the entity's fields into memory.
   // String are pushed on the stack and their reference set in the entity field.
   // Float are set directly in the entity field.
@@ -608,35 +634,7 @@ const VM = struct {
     // Go through the entity from the BSP, load the data in memory and set the fields.
     var it = entity.iterator();
     while (it.next()) |entry| {
-      const fieldName = entry.key_ptr.*;
-      const fieldIndex = self.getFieldIndexFromName(fieldName) orelse {
-        // _ = try std.fmt.bufPrintZ(&err.message, "Undeclared field name: {s}", .{ fieldName });
-        // break :blk error.UnknownFieldName;
-        // std.log.warn("Undeclared field name: {s}", .{ fieldName });
-        continue;
-      };
-
-      const fieldPtr = try self.getFieldPtr(intCast(u32, self.translateEntToVM(entityIndex)),
-        fieldIndex, err);
-
-      switch (entry.value_ptr.value) {
-        .String => |s| {
-          const value = try self.pushString("{s}", .{ s });
-          self.write32ent(fieldPtr, intCast(u32, value));
-        },
-        .Float => |f| {
-          const value = bitCast(u32, f);
-          self.write32ent(fieldPtr, value);
-        },
-        .Vector => |v| {
-          const x = bitCast(u32, v[0]);
-          self.write32ent(fieldPtr, x);
-          const y = bitCast(u32, v[1]);
-          self.write32ent(fieldPtr - 1, y);
-          const z =  bitCast(u32, v[2]);
-          self.write32ent(fieldPtr - 2, z);
-        },
-      }
+      self.setEntityField(entityIndex, entry.key_ptr.*, entry.value_ptr.value, err) catch {};
     }
   }
 
@@ -725,14 +723,14 @@ const VM = struct {
   // opaque number that will be used to identify this particular field of this
   // particular struct.
   // entityIndex is a the index as used in the VM, not the index in the memory array.
-  fn getFieldPtr(self: Self, entityIndex: u32, fieldIndex: u32, err: *RuntimeError) !u32 {
+  fn getFieldPtr(self: Self, entityIndexVM: u32, fieldIndex: u32, err: *RuntimeError) !u32 {
     if (fieldIndex >= self.maxFieldIndex) {
       _ = try std.fmt.bufPrintZ(&err.message, "field index {} is out of bound (nb of fields: {})", .{
         fieldIndex, self.maxFieldIndex,
       });
       return error.RuntimeError;
     }
-    const entityIndexEnt = self.translateVMToEnt(entityIndex);
+    const entityIndexEnt = self.translateVMToEnt(entityIndexVM);
     const entity = @as(*Entity, @ptrCast(@alignCast(&self.mem32[entityIndexEnt])));
     const addrFieldEnt = (@intFromPtr(&entity.data[fieldIndex]) - @intFromPtr(self.mem32.ptr)) / @sizeOf(u32);
     const addrVM = intCast(u32, self.translateEntToVM(addrFieldEnt));
