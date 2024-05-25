@@ -256,7 +256,11 @@ const Builtins = struct {
         vm.write32(@intFromEnum(CallRegisters.ReturnValue), bitCast(u32, @abs(value)));
       },
       44 => @panic("aim is not yet implemented"),
-      45 => @panic("cvar is not yet implemented"),
+      45 => { // cvar
+        const identifier = vm.getString(vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
+        const value = vm.cvars.get(identifier) orelse 0;
+        vm.write32(@intFromEnum(CallRegisters.ReturnValue), bitCast(u32, @abs(value)));
+      },
       46 => @panic("localcmd is not yet implemented"),
       47 => @panic("nextent is not yet implemented"),
       48 => @panic("particle is not yet implemented"),
@@ -286,7 +290,7 @@ const Builtins = struct {
       70 => @panic("changelevel is not yet implemented"),
       72 => { // cvar_set
         const identifier = vm.getString(vm.mem32[@intFromEnum(CallRegisters.Parameter1)]);
-        const value = vm.getString(vm.mem32[@intFromEnum(CallRegisters.Parameter2)]);
+        const value = vm.mem32[@intFromEnum(CallRegisters.Parameter2)];
         try vm.cvars.put(vm.heapAllocator.allocator(), identifier, value);
       },
       73 => @panic("centerprint is not yet implemented"),
@@ -452,7 +456,7 @@ const VM = struct {
   // TODO: Rework this indexInOffsetList
   nbEntities: usize = 0,
   // What are console variables?
-  cvars: std.StringHashMapUnmanaged([]const u8),
+  cvars: std.StringHashMapUnmanaged(u32),
   // An object used to retrieve content from the filesystem (most probably a pak file)
   filesystem: Filesystem,
   // Time at which the VM is instantiated in milli seconds
@@ -495,7 +499,7 @@ const VM = struct {
       .maxFieldIndex = 0,
       .heapAllocator = rfba.ReverseFixedBufferAllocator.init(mem),
       .world = intCast(u32, mem32.len), // If no BSP loaded, world is the end of the memory
-      .cvars = std.StringHashMapUnmanaged([]const u8){},
+      .cvars = std.StringHashMapUnmanaged(u32){},
       .filesystem = filesystem,
       .startTime = std.time.milliTimestamp(),
       .options = options,
