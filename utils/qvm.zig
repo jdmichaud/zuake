@@ -674,7 +674,7 @@ const VM = struct {
   }
 
   pub fn callConstructors(self: *Self, err: *RuntimeError) !void {
-    for (self.entityOffsets) |entityIndex| {
+    for (self.entityOffsets[0..self.nbEntities]) |entityIndex| {
       // Retrieve the classname
       const entity = @as(*Entity, @ptrCast(@alignCast(&self.mem32[entityIndex])));
       const classnameIndex = self.getFieldIndexFromName("classname") orelse continue;
