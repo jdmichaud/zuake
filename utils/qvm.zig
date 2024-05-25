@@ -595,6 +595,15 @@ const VM = struct {
     return entityIndex;
   }
 
+  // Return the entityIndexVM of self.
+  pub fn getSelfEntity(self: Self) !u32 {
+    // Retrieve the self definition
+    const selfDefinition = self.dat.?.getDefinitionByName("self") orelse {
+      return error.ClassnameNotAString;
+    };
+    return self.read32(selfDefinition.globalIndex);
+  }
+
   pub fn setEntityField(self: *Self, entityIndex: u32, fieldName: []const u8,
     value: entityModule.EntityValue, err: *RuntimeError) !void {
 
@@ -659,7 +668,7 @@ const VM = struct {
       const entity = @as(*Entity, @ptrCast(@alignCast(&self.mem32[entityIndex])));
       const classnameIndex = self.getFieldIndexFromName("classname") orelse continue;
       const classname = self.getString(entity.data[classnameIndex]);
-      // Retrieve the self deinition
+      // Retrieve the self definition
       const selfDefinition = self.dat.?.getDefinitionByName("self") orelse {
         _ = try std.fmt.bufPrintZ(&err.message,
           "no self definition. Without a self definition, constructors cannot be called.", .{});
@@ -708,6 +717,11 @@ const VM = struct {
 
   inline fn write32ent(self: Self, addr: usize, value: u32) void {
     self.mem32[self.translateVMToEnt(addr)] = value;
+  }
+
+  inline fn getTime(self: Self) f32 {
+    _ = self;
+    return 0;
   }
 
   fn getFieldIndexFromName(self: Self, fieldName: []const u8) ?u32 {
@@ -868,7 +882,23 @@ const VM = struct {
         }
         return true;
       },
-      datModule.OpCode.STATE => @panic("STATE unimplemented"),
+      datModule.OpCode.STATE => {
+        // https://quakewiki.org/wiki/QuakeC_Definition_of_Functions#Definition_of_a_frame_function
+        const framenum = bitCast(f32, self.read32(statement.arg1));
+        const nextthinkFnIndex = self.read32(statement.arg2);
+
+        const selfEntity = intCast(u32, self.translateEntToVM(self.getSelfEntity() catch |e| {
+          _ = try std.fmt.bufPrintZ(&err.message,
+            "no self definition. Without a self definition, constructors cannot be called.", .{});
+          return e;
+        }));
+
+        try self.setEntityField(selfEntity, "frame", .{ .Float = framenum }, err);
+        try self.setEntityField(selfEntity, "nextthink", .{ .Float = self.getTime() + 0.1 }, err);
+        try self.setEntityField(selfEntity, "think", .{ .Float = bitCast(f32, nextthinkFnIndex) }, err);
+        self.pc += 1;
+        return false;
+      },
       datModule.OpCode.GOTO => {
         self.pc = intCast(usize, intCast(i32, self.pc) + bitCast(i16, statement.arg1));
         return false;
