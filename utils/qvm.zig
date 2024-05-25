@@ -193,6 +193,17 @@ const Builtins = struct {
         const entity: *Entity = @ptrCast(@alignCast(&vm.mem32[entityIndex]));
         // Entity are removed by setting their pointer to world (0 in the VM memory space).
         vm.entityOffsets[entity.indexInOffsetList] = vm.world;
+        // Reset some fields as seen in Quake VM implementation (usefule? why not a memset?)
+        var err = RuntimeError{};
+        const entityIndex32: u32 = @intCast(entityIndex);
+        vm.setEntityField(entityIndex32, "model", .{ .Float = 0 }, &err) catch {};
+        vm.setEntityField(entityIndex32, "takedamage", .{ .Float = 0 }, &err) catch {};
+        vm.setEntityField(entityIndex32, "modelindex", .{ .Float = 0 }, &err) catch {};
+        vm.setEntityField(entityIndex32, "colormap", .{ .Float = 0 }, &err) catch {};
+        vm.setEntityField(entityIndex32, "skin", .{ .Float = 0 }, &err) catch {};
+        vm.setEntityField(entityIndex32, "frame", .{ .Float = 0 }, &err) catch {};
+        vm.setEntityField(entityIndex32, "solid", .{ .Float = 0 }, &err) catch {};
+        vm.setEntityField(entityIndex32, "nextthink", .{ .Float = -1 }, &err) catch {};
       },
       16 => @panic("traceline is not yet implemented"),
       17 => @panic("checkclient is not yet implemented"),
