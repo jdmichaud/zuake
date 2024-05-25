@@ -11,3 +11,4 @@ bspc
 *.so
 dat
 qvm
+*.dump

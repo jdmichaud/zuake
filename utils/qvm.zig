@@ -502,7 +502,7 @@ const VM = struct {
     const file = try std.fs.cwd().createFile(corefile, .{ .read = true });
     defer file.close();
     try file.writeAll(self.mem);
-    try stdout.print("core dumped: {s}", .{ corefile });
+    try stdout.print("core dumped: {s}\n", .{ corefile });
   }
 
   // Load a dat file and set the various pointers.
@@ -723,11 +723,11 @@ const VM = struct {
 
   // Accessors to entity memory
   inline fn read32ent(self: Self, addr: usize) u32 {
-    return self.mem32[self.translateVMToEnt(addr)];
+    return self.read32(self.translateVMToEnt(addr));
   }
 
   inline fn write32ent(self: Self, addr: usize, value: u32) void {
-    self.mem32[self.translateVMToEnt(addr)] = value;
+    self.write32(self.translateVMToEnt(addr), value);
   }
 
   inline fn getTime(self: Self) f32 {
