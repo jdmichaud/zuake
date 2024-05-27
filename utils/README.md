@@ -13,3 +13,4 @@
 * wad2: loads a WAD2 file
 * dat: loads QuakeC dat file (progs.dat)
 * qvm: A QuakeC VM
+* qcc: A QuakeC compiler
