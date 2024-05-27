@@ -432,7 +432,7 @@ pub fn main() !void {
     .canvasCS = canvasCS,
     .viewportCS = viewportCS,
     .camera = topCameraFromLevel(bsp.models[0]),
-    .mapName = if (entities.get("worldspawn").?.get("message")) |message| message.toString() else "Not a map",
+    .mapName = if (entities.get("worldspawn").?.get("message")) |message| try message.toString() else "Not a map",
     .mousePosition = zlm.vec2(0, 0),
   };
 
