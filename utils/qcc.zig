@@ -49,6 +49,29 @@ pub const Token = struct {
   };
 };
 
+pub const Location = struct {
+  column: u32,
+  row: u32,
+};
+
+pub const GenericError = struct {
+  message: [255:0]u8 = [_:0]u8{ 0 } ** 255,
+  location: Location = .{ .column = 0, .row = 0 },
+};
+
+pub fn getLocation(buffer: []const u8, index: usize) Location {
+  var i: usize = 0;
+  var location = Location{ .column = 0, .row = 0 };
+  while (i < index) : (i += 1) {
+    location.column += 1;
+    if (buffer[i] == '\n') {
+      location.column = 0;
+      location.row += 1;
+    }
+  }
+  return location;
+}
+
 pub const Tokenizer = struct {
   const Self = @This();
 
@@ -72,7 +95,7 @@ pub const Tokenizer = struct {
     };
   }
 
-  pub fn next(self: *Self) Token {
+  pub fn next(self: *Self, err: *GenericError) !Token {
     var state = State.start;
     var result = Token {
       .tag = .eof,
@@ -259,8 +282,10 @@ pub const Tokenizer = struct {
             state = .float_literal;
             result.start = self.index;
           },
-          else => {
-            @panic("unhandled character");
+          else => |c| {
+            _ = try std.fmt.bufPrintZ(&err.message, "unexpected character: {c}", .{ c });
+            err.location = getLocation(self.buffer, self.index);
+            return error.UnexpectedCharacter;
           },
         },
         .identifier => switch (self.buffer[self.index]) {
@@ -312,8 +337,10 @@ pub const Tokenizer = struct {
             result.end = self.index;
             self.index += 1;
           },
-          else => {
-            @panic("Improperly formatted vector");
+          else => |c| {
+            _ = try std.fmt.bufPrintZ(&err.message, "unexpected character in vector literal: {c}", .{ c });
+            err.location = getLocation(self.buffer, self.index);
+            return error.UnexpectedCharacter;
           },
         },
         .comment => switch (self.buffer[self.index]) {
@@ -333,19 +360,20 @@ pub const Tokenizer = struct {
 
 };
 
-fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {
+fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag, err: *GenericError) !void {
     var tokenizer = Tokenizer.init(source);
     for (expected_token_tags) |expected_token_tag| {
-        const token = tokenizer.next();
+        const token = try tokenizer.next(err);
         try std.testing.expectEqual(expected_token_tag, token.tag);
     }
-    const last_token = tokenizer.next();
+    const last_token = try tokenizer.next(err);
     try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
     try std.testing.expectEqual(source.len, last_token.start);
     try std.testing.expectEqual(source.len, last_token.end);
 }
 
 test "basic test" {
+  var err = GenericError{};
   try testTokenize("(this is an_identifier)", &.{
     Token.Tag.l_paren,
     Token.Tag.identifier,
@@ -353,14 +381,14 @@ test "basic test" {
     Token.Tag.identifier,
     Token.Tag.r_paren,
     Token.Tag.eof,
-  });
+  }, &err);
   try testTokenize(".vector field;", &.{
     Token.Tag.dot,
     Token.Tag.identifier,
     Token.Tag.identifier,
     Token.Tag.semicolon,
     Token.Tag.eof,
-  });
+  }, &err);
   try testTokenize("float f = 3.14;", &.{
     Token.Tag.identifier,
     Token.Tag.identifier,
@@ -368,7 +396,7 @@ test "basic test" {
     Token.Tag.float_literal,
     Token.Tag.semicolon,
     Token.Tag.eof,
-  });
+  }, &err);
   try testTokenize("string s = \"pi\";", &.{
     Token.Tag.identifier,
     Token.Tag.identifier,
@@ -376,7 +404,7 @@ test "basic test" {
     Token.Tag.string_literal,
     Token.Tag.semicolon,
     Token.Tag.eof,
-  });
+  }, &err);
   try testTokenize("vector v = '+0.5 -1 -.2';", &.{
     Token.Tag.identifier,
     Token.Tag.identifier,
@@ -384,7 +412,7 @@ test "basic test" {
     Token.Tag.vector_literal,
     Token.Tag.semicolon,
     Token.Tag.eof,
-  });
+  }, &err);
   try testTokenize("void (float f, vector v) foo = {}", &.{
     Token.Tag.identifier,
     Token.Tag.l_paren,
@@ -399,7 +427,7 @@ test "basic test" {
     Token.Tag.l_bracket,
     Token.Tag.r_bracket,
     Token.Tag.eof,
-  });
+  }, &err);
   try testTokenize("void\t(string str, ...)\tprint = #99;", &.{
     Token.Tag.identifier,
     Token.Tag.l_paren,
@@ -413,7 +441,7 @@ test "basic test" {
     Token.Tag.builtin_literal,
     Token.Tag.semicolon,
     Token.Tag.eof,
-  });
+  }, &err);
 
   const comments =
     \\ // Let's describe this function
@@ -443,7 +471,7 @@ test "basic test" {
     Token.Tag.comment,
     Token.Tag.r_bracket,
     Token.Tag.eof,
-  });
+  }, &err);
 
   const conditions =
     \\if ("foo" == "foo" && 1 != 2 || false && true) {
@@ -473,5 +501,5 @@ test "basic test" {
     Token.Tag.semicolon,
     Token.Tag.r_bracket,
     Token.Tag.eof,
-  });
+  }, &err);
 }
