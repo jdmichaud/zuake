@@ -3,8 +3,9 @@
 // reference:
 //
 // cmd: clear && zig build-exe -freference-trace qvm.zig && ./qvm ../data/pak/progs.dat
-// test: zig test qcc.zi
+// test: zig test qcc.zig
 const std = @import("std");
+const dat = @import("dat");
 
 pub const Token = struct {
   tag: Tag,
@@ -14,7 +15,6 @@ pub const Token = struct {
   pub const Tag = enum {
     eof,
     new_line,
-    start,
 
     dot,
     comma,
@@ -360,19 +360,199 @@ pub const Tokenizer = struct {
 
 };
 
-fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag, err: *GenericError) !void {
-    var tokenizer = Tokenizer.init(source);
-    for (expected_token_tags) |expected_token_tag| {
-        const token = try tokenizer.next(err);
-        try std.testing.expectEqual(expected_token_tag, token.tag);
+const Ast = struct {
+  const NodeType = enum {
+    var_decl,
+    fn_decl,
+    field_decl,
+    builtin_decl,
+    scope,
+  };
+
+  const QType = enum {
+    Void,
+    Float,
+    Vector,
+    String,
+
+    const Self = @This();
+    pub fn prettyPrint(self: Self, string: []u8) !usize {
+      switch (self) {
+        .Void => return (try std.fmt.bufPrint(string, "void", .{})).len,
+        .Float => return (try std.fmt.bufPrint(string, "float", .{})).len,
+        .Vector => return (try std.fmt.bufPrint(string, "vector", .{})).len,
+        .String => return (try std.fmt.bufPrint(string, "string", .{})).len,
+      }
     }
-    const last_token = try tokenizer.next(err);
-    try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
-    try std.testing.expectEqual(source.len, last_token.start);
-    try std.testing.expectEqual(source.len, last_token.end);
+  };
+
+  const QValue = union(QType) {
+    Void: void,
+    Float: f32,
+    Vector: @Vector(3, f32),
+    String: []const u8,
+
+    const Self = @This();
+    pub fn prettyPrint(self: Self, string: []u8) !usize {
+      switch (self) {
+        .Void => return (try std.fmt.bufPrint(string, "void", .{})).len,
+        .Float => |f| return (try std.fmt.bufPrint(string, "{d}", .{ f })).len,
+        .Vector => |v| {
+          return (try std.fmt.bufPrint(string, "'{d} {d} {d}'", .{ v[0], v[1], v[2] })).len;
+        },
+        .String => |s| return (try std.fmt.bufPrint(string, "{s}", .{ s })).len,
+      }
+    }
+  };
+
+  const VarDecl = struct {
+    type: QType,
+    name: []const u8,
+    value: ?QValue,
+  };
+
+  const ParamDecl = struct {
+    type: QType,
+    name: []const u8,
+
+    const Self = @This();
+    pub fn prettyPrint(self: Self, string: []u8) !usize {
+      const written = try self.type.prettyPrint(string);
+      return written + (try std.fmt.bufPrint(string, " {s}", .{ self.name })).len;
+    }
+  };
+
+  const FnDecl = struct {
+    return_type: QType,
+    name: []const u8,
+    parameter_list: []const ParamDecl,
+    body: *Node,
+  };
+
+  const FieldDecl = struct {
+    type: QType,
+    name: []const u8,
+  };
+
+  const BuiltinDecl = struct {
+    name: []const u8,
+    return_type: QType,
+    parameter_list: []const ParamDecl,
+    index: usize,
+  };
+
+  const Scope = struct {
+    instructions: []Node,
+  };
+
+  const Node = union(NodeType) {
+    var_decl: VarDecl,
+    fn_decl: FnDecl,
+    field_decl: FieldDecl,
+    builtin_decl: BuiltinDecl,
+    scope: Scope,
+
+    pub fn prettyPrint(self: @This(), string: []u8) !usize {
+      var written: usize = 0;
+      switch (self) {
+        .var_decl => |d| {
+          written += try d.type.prettyPrint(string);
+          written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
+          if (d.value) |value| {
+            written += (try std.fmt.bufPrint(string[written..], " = ", .{})).len;
+            written += try value.prettyPrint(string[written..]);
+          }
+          written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+        },
+        .fn_decl => |d| {
+          written += try d.return_type.prettyPrint(string);
+          written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
+          for (d.parameter_list, 0..) |param, i| {
+            written += try param.prettyPrint(string[written..]);
+            if (i < d.parameter_list.len - 1) {
+              written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
+            }
+          }
+          written += (try std.fmt.bufPrint(string[written..], ") {s} = ", .{ d.name })).len;
+          written += try d.body.prettyPrint(string[written..]);
+        },
+        .field_decl => |d| {
+          written += try d.type.prettyPrint(string);
+          written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
+          written += (try std.fmt.bufPrint(string[written..], ";\n", .{})).len;
+        },
+        .builtin_decl => |d| {
+          written += try d.return_type.prettyPrint(string);
+          written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
+          written += (try std.fmt.bufPrint(string[written..], ") {s} = #{};", .{ d.name, d.index })).len;
+        },
+        .scope => |s| {
+          written += (try std.fmt.bufPrint(string[written..], "{{\n", .{})).len;
+          for (s.instructions) |param| {
+            // TODO: indentation here
+            written += try param.prettyPrint(string[written..]);
+            written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+          }
+          written += (try std.fmt.bufPrint(string[written..], "}}\n", .{})).len;
+        },
+      }
+      return written;
+    }
+  };
+};
+
+const ParseError = error {
+  EmptySource,
+};
+
+fn makeError(errcode: ParseError, err: *GenericError, message: []const u8) ParseError {
+  _ = try std.fmt.bufPrint(err.message, message, .{});
+  return errcode;
 }
 
-test "basic test" {
+const Parser = struct {
+  const Self = @This();
+
+  tokenizer: Tokenizer,
+
+  pub fn init(buffer: [:0]const u8) Self {
+    return Self {
+      .tokenizer = Tokenizer.init(buffer),
+    };
+  }
+
+  pub fn parse(self: *Self, err: *GenericError) !Ast.Node {
+    switch (try self.tokenizer.next(err)) {
+      Token.Tag.eof => return makeError(ParseError.EmptySource, err, "Empty source"),
+      Token.Tag.new_line,
+      Token.Tag.comment => // ignore
+      Token.Tag.identifier => // var/fn decl
+      Token.Tag.dot => // field decl
+    }
+  }
+
+  // fn parseRoot(self: *Self, err: *GenericError) !Ast.Node {
+  //   return Ast.Node{ .var_decl = Ast.VarDecl{
+  //     .type = Ast.QType.String,
+  //     .name = "foo",
+  //     .value = Ast.QValue{ .String = "something" },
+  //   }};
+  // }
+};
+
+fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag, err: *GenericError) !void {
+  var tokenizer = Tokenizer.init(source);
+  for (expected_token_tags) |expected_token_tag| {
+      const token = try tokenizer.next(err);
+      try std.testing.expectEqual(expected_token_tag, token.tag);
+  }
+  const last_token = try tokenizer.next(err);
+  try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
+  try std.testing.expectEqual(source.len, last_token.start);
+  try std.testing.expectEqual(source.len, last_token.end);
+}
+
+test "tokenizer test" {
   var err = GenericError{};
   try testTokenize("(this is an_identifier)", &.{
     Token.Tag.l_paren,
@@ -502,4 +682,26 @@ test "basic test" {
     Token.Tag.r_bracket,
     Token.Tag.eof,
   }, &err);
+}
+
+fn expectEqualString(lhs: []const u8, rhs: []const u8) !void {
+  if (std.mem.eql(u8, lhs, rhs)) {
+    return;
+  } else {
+    std.log.err("\n\"{s}\"\n not equal to\n\"{s}\"", .{ lhs, rhs });
+    return error.Fail;
+  }
+}
+
+fn testParse(source: [:0]const u8, err: *GenericError) !void {
+  var output: [4096]u8 = .{ 0 } ** 4096;
+  var parser = Parser.init(source);
+  const node = try parser.parse(err);
+  _ = try node.prettyPrint(&output);
+  try expectEqualString(source, &output);
+}
+
+test "parser test" {
+  var err = GenericError{};
+  try testParse("float f = 3.14;", &err);
 }
