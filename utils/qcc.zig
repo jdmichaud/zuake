@@ -8,6 +8,26 @@
 const std = @import("std");
 const dat = @import("dat");
 
+const ParseError = error {
+  EmptySource,
+  UnexpectedInput,
+  NoSpaceLeft,
+  NotAVectorMissingLeadingQuote,
+  NotAVectorMissingClosingQuote,
+  NotAVector,
+};
+
+fn makeError(errcode: ParseError, location: ?Location, err: *GenericError, comptime format: []const u8,
+  args: anytype) ParseError {
+  if (location) |loc| {
+    _ = try std.fmt.bufPrint(&err.message, "error:{}:{}: " ++ format,
+      .{ loc.row, loc.column } ++ args);
+  } else {
+    _ = try std.fmt.bufPrint(&err.message, "error: " ++ format, args);
+  }
+  return errcode;
+}
+
 pub const Token = struct {
   tag: Tag,
   start: usize,
@@ -107,7 +127,7 @@ pub const Tokenizer = struct {
   pub fn next(self: *Self, err: *GenericError) !Token {
     const token = try self.peek(err);
     self.index = token.end + 1;
-    std.log.warn("next {}", .{ token });
+    // std.log.warn("next {}", .{ token });
     return token;
   }
 
@@ -477,17 +497,55 @@ const Ast = struct {
 
   const ExpressionType = enum {
     float_literal,
+    string_literal,
+    vector_literal,
+  };
+
+  const StringLiteral = struct {
+    value: []const u8,
+  };
+
+  const VectorLiteral = struct {
+    value: @Vector(3, f32),
+
+    pub fn fromString(str: []const u8) !VectorLiteral {
+      if (str[0] != '\'') return error.NotAVectorMissingLeadingQuote;
+      if (str[str.len - 1] != '\'') return error.NotAVectorMissingClosingQuote;
+      var it = std.mem.splitScalar(u8, str[1..str.len - 1], ' ');
+      var part = it.next();
+      const x = if (part) |p|
+        std.fmt.parseFloat(f32, p) catch return error.NotAVector else return error.NotAVector;
+      part = it.next();
+      const y = if (part) |p|
+        std.fmt.parseFloat(f32, p) catch return error.NotAVector else return error.NotAVector;
+      part = it.next();
+      const z = if (part) |p|
+        std.fmt.parseFloat(f32, p) catch return error.NotAVector else return error.NotAVector;
+      return VectorLiteral{
+        .value = @Vector(3, f32){ x, y, z },
+      };
+    }
   };
 
   const Expression = union(ExpressionType) {
     float_literal: FloatLiteral,
+    string_literal: StringLiteral,
+    vector_literal: VectorLiteral,
 
     pub fn prettyPrint(self: @This(), string: []u8) !usize {
       var written: usize = 0;
       switch (self) {
         .float_literal => |f| {
           written += (try std.fmt.bufPrint(string[written..], "{d}", .{ f.value })).len;
-        }
+        },
+        .string_literal => |s| {
+          written += (try std.fmt.bufPrint(string[written..], "{s}", .{ s.value })).len;
+        },
+        .vector_literal => |s| {
+          written += (try std.fmt.bufPrint(string[written..], "'{d} {d} {d}'", .{
+            s.value[0], s.value[1], s.value[2],
+          })).len;
+        },
       }
       return written;
     }
@@ -514,11 +572,10 @@ const Ast = struct {
       var written: usize = 0;
       switch (self) {
         .var_decl => |d| {
-          written += try d.type.prettyPrint(string);
+          written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
           if (d.value) |value| {
             written += (try std.fmt.bufPrint(string[written..], " = ", .{})).len;
-            std.log.warn("value {}", .{ value });
             written += try value.prettyPrint(string[written..]);
           }
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
@@ -536,21 +593,22 @@ const Ast = struct {
           written += try d.body.prettyPrint(string[written..]);
         },
         .field_decl => |d| {
-          written += try d.type.prettyPrint(string);
+          written += (try std.fmt.bufPrint(string[written..], ".", .{})).len;
+          written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
-          written += (try std.fmt.bufPrint(string[written..], ";\n", .{})).len;
+          written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .builtin_decl => |d| {
-          written += try d.return_type.prettyPrint(string);
+          written += try d.return_type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
           written += (try std.fmt.bufPrint(string[written..], ") {s} = #{};", .{ d.name, d.index })).len;
         },
         .expression => |expression| {
-          written += try expression.prettyPrint(string);
+          written += try expression.prettyPrint(string[written..]);
         },
         .program => |p| {
           for (p.declarations) |declaration| {
-            written += try declaration.prettyPrint(string);
+            written += try declaration.prettyPrint(string[written..]);
           }
         },
         // .scope => |s| {
@@ -567,23 +625,6 @@ const Ast = struct {
     }
   };
 };
-
-const ParseError = error {
-  EmptySource,
-  UnexpectedInput,
-  NoSpaceLeft,
-};
-
-fn makeError(errcode: ParseError, location: ?Location, err: *GenericError, comptime format: []const u8,
-  args: anytype) ParseError {
-  if (location) |loc| {
-    _ = try std.fmt.bufPrint(&err.message, "error:{}:{}: " ++ format,
-      .{ loc.row, loc.column } ++ args);
-  } else {
-    _ = try std.fmt.bufPrint(&err.message, "error: " ++ format, args);
-  }
-  return errcode;
-}
 
 const Parser = struct {
   const Self = @This();
@@ -603,15 +644,16 @@ const Parser = struct {
 
     while (true) {
       const token = try self.tokenizer.peek(err);
-      std.log.warn("parse token {}", .{ token });
       switch (token.tag) {
         Token.Tag.comment => {}, // ignore
         Token.Tag.type => {
           program[declIndex] = try self.parseDeclaration(err);
           declIndex += 1;
         },
-        // Token.Tag.dot => { // field decl
-        // },
+        Token.Tag.dot => { // field decl
+          program[declIndex] = try self.parseFieldDefinition(err);
+          declIndex += 1;
+        },
         Token.Tag.eof => {
           if (declIndex == 0) {
             // Do not allow empty source file
@@ -621,7 +663,7 @@ const Parser = struct {
             .declarations = program[0..declIndex],
           } };
         },
-        else => |t| return makeError(ParseError.EmptySource, null, err, "Unexpected token {}", .{ t }),
+        else => |t| return makeError(ParseError.UnexpectedInput, null, err, "Unexpected token {}", .{ t }),
       }
       if (declIndex >= StatementLimit) {
         return makeError(ParseError.EmptySource, null, err, "Too many statement. Limit is {}", .{ StatementLimit });
@@ -655,7 +697,6 @@ const Parser = struct {
         const scToken = try self.tokenizer.next(err);
         switch (scToken.tag) {
           Token.Tag.semicolon => {
-            // std.log.warn("create declaration with value {}", .{ expression });
             return Ast.Node{ .var_decl = Ast.VarDecl{
               .type = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
               .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
@@ -679,16 +720,47 @@ const Parser = struct {
     }
   }
 
+  fn parseFieldDefinition(self: *Self, err: *GenericError) !Ast.Node {
+    // discard dot
+    _ = try self.tokenizer.next(err);
+    const typeToken = try self.tokenizer.next(err);
+    const identifierToken = try self.tokenizer.next(err);
+    if (identifierToken.tag != Token.Tag.identifier) {
+      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
+        "expecting identifier found {}", .{ identifierToken });
+    }
+    const scToken = try self.tokenizer.next(err);
+    if (scToken.tag != Token.Tag.semicolon) {
+      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
+        "expecting semicolon found {}", .{ identifierToken });
+    }
+    return Ast.Node{ .field_decl = Ast.FieldDecl{
+      .type = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
+      .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
+    }};
+  }
+
   fn parseExpression(self: *Self, err: *GenericError) !Ast.Expression {
     const token = try self.tokenizer.next(err);
     switch (token.tag) {
       Token.Tag.float_literal => {
         const value = try std.fmt.parseFloat(f32, self.tokenizer.buffer[token.start..token.end + 1]);
-        std.log.warn("parseExpression float literal value {}", .{ value });
         return Ast.Expression{ .float_literal = Ast.FloatLiteral{ .value = value } };
       },
+      Token.Tag.string_literal => {
+        const value = self.tokenizer.buffer[token.start..token.end + 1];
+        return Ast.Expression{ .string_literal = Ast.StringLiteral{ .value = value } };
+      },
+      Token.Tag.vector_literal => {
+        const vectorLiteralStr = self.tokenizer.buffer[token.start..token.end + 1];
+        const value = Ast.VectorLiteral.fromString(vectorLiteralStr) catch |e| {
+          return makeError(e, getLocation(self.tokenizer.buffer, token.start), err,
+            "incorrect vector literal", .{});
+        };
+        return Ast.Expression{ .vector_literal = value };
+      },
       else => return makeError(ParseError.EmptySource, getLocation(self.tokenizer.buffer, token.start), err,
-       "Unexpected token {}", .{ token }),
+       "unexpected token {}", .{ token }),
     }
   }
 
@@ -713,137 +785,137 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag, er
   try std.testing.expectEqual(source.len, last_token.end);
 }
 
-// test "tokenizer test" {
-//   var err = GenericError{};
-//   try testTokenize("(this is an_identifier)", &.{
-//     Token.Tag.l_paren,
-//     Token.Tag.identifier,
-//     Token.Tag.identifier,
-//     Token.Tag.identifier,
-//     Token.Tag.r_paren,
-//     Token.Tag.eof,
-//   }, &err);
-//   try testTokenize(".vector field;", &.{
-//     Token.Tag.dot,
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.semicolon,
-//     Token.Tag.eof,
-//   }, &err);
-//   try testTokenize("float f = 3.14;", &.{
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.equal,
-//     Token.Tag.float_literal,
-//     Token.Tag.semicolon,
-//     Token.Tag.eof,
-//   }, &err);
-//   try testTokenize("string s = \"pi\";", &.{
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.equal,
-//     Token.Tag.string_literal,
-//     Token.Tag.semicolon,
-//     Token.Tag.eof,
-//   }, &err);
-//   try testTokenize("vector v = '+0.5 -1 -.2';", &.{
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.equal,
-//     Token.Tag.vector_literal,
-//     Token.Tag.semicolon,
-//     Token.Tag.eof,
-//   }, &err);
-//   try testTokenize("void (float f, vector v) foo = {}", &.{
-//     Token.Tag.type,
-//     Token.Tag.l_paren,
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.comma,
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.r_paren,
-//     Token.Tag.identifier,
-//     Token.Tag.equal,
-//     Token.Tag.l_bracket,
-//     Token.Tag.r_bracket,
-//     Token.Tag.eof,
-//   }, &err);
-//   try testTokenize("void\t(string str, ...)\tprint = #99;", &.{
-//     Token.Tag.type,
-//     Token.Tag.l_paren,
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.comma,
-//     Token.Tag.elipsis,
-//     Token.Tag.r_paren,
-//     Token.Tag.identifier,
-//     Token.Tag.equal,
-//     Token.Tag.builtin_literal,
-//     Token.Tag.semicolon,
-//     Token.Tag.eof,
-//   }, &err);
+test "tokenizer test" {
+  var err = GenericError{};
+  try testTokenize("(this is an_identifier)", &.{
+    Token.Tag.l_paren,
+    Token.Tag.identifier,
+    Token.Tag.identifier,
+    Token.Tag.identifier,
+    Token.Tag.r_paren,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize(".vector field;", &.{
+    Token.Tag.dot,
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("float f = 3.14;", &.{
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.float_literal,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("string s = \"pi\";", &.{
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.string_literal,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("vector v = '+0.5 -1 -.2';", &.{
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.vector_literal,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("void (float f, vector v) foo = {}", &.{
+    Token.Tag.type,
+    Token.Tag.l_paren,
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.comma,
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.r_paren,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.l_bracket,
+    Token.Tag.r_bracket,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("void\t(string str, ...)\tprint = #99;", &.{
+    Token.Tag.type,
+    Token.Tag.l_paren,
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.comma,
+    Token.Tag.elipsis,
+    Token.Tag.r_paren,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.builtin_literal,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
 
-//   const comments =
-//     \\ // Let's describe this function
-//     \\ void () main = {
-//     \\   string foo = "foo";
-//     \\   printf(foo); // prints foo
-//     \\ }
-//   ;
-//   try testTokenize(comments, &.{
-//     Token.Tag.comment,
-//     Token.Tag.type,
-//     Token.Tag.l_paren,
-//     Token.Tag.r_paren,
-//     Token.Tag.identifier,
-//     Token.Tag.equal,
-//     Token.Tag.l_bracket,
-//     Token.Tag.type,
-//     Token.Tag.identifier,
-//     Token.Tag.equal,
-//     Token.Tag.string_literal,
-//     Token.Tag.semicolon,
-//     Token.Tag.identifier,
-//     Token.Tag.l_paren,
-//     Token.Tag.identifier,
-//     Token.Tag.r_paren,
-//     Token.Tag.semicolon,
-//     Token.Tag.comment,
-//     Token.Tag.r_bracket,
-//     Token.Tag.eof,
-//   }, &err);
+  const comments =
+    \\ // Let's describe this function
+    \\ void () main = {
+    \\   string foo = "foo";
+    \\   printf(foo); // prints foo
+    \\ }
+  ;
+  try testTokenize(comments, &.{
+    Token.Tag.comment,
+    Token.Tag.type,
+    Token.Tag.l_paren,
+    Token.Tag.r_paren,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.l_bracket,
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.string_literal,
+    Token.Tag.semicolon,
+    Token.Tag.identifier,
+    Token.Tag.l_paren,
+    Token.Tag.identifier,
+    Token.Tag.r_paren,
+    Token.Tag.semicolon,
+    Token.Tag.comment,
+    Token.Tag.r_bracket,
+    Token.Tag.eof,
+  }, &err);
 
-//   const conditions =
-//     \\if ("foo" == "foo" && 1 != 2 || false && true) {
-//     \\  printf(foo);
-//     \\}
-//   ;
-//   try testTokenize(conditions, &.{
-//     Token.Tag.kw_if,
-//     Token.Tag.l_paren,
-//     Token.Tag.string_literal,
-//     Token.Tag.double_equal,
-//     Token.Tag.string_literal,
-//     Token.Tag.and_,
-//     Token.Tag.float_literal,
-//     Token.Tag.not_equal,
-//     Token.Tag.float_literal,
-//     Token.Tag.or_,
-//     Token.Tag.false,
-//     Token.Tag.and_,
-//     Token.Tag.true,
-//     Token.Tag.r_paren,
-//     Token.Tag.l_bracket,
-//     Token.Tag.identifier,
-//     Token.Tag.l_paren,
-//     Token.Tag.identifier,
-//     Token.Tag.r_paren,
-//     Token.Tag.semicolon,
-//     Token.Tag.r_bracket,
-//     Token.Tag.eof,
-//   }, &err);
-// }
+  const conditions =
+    \\if ("foo" == "foo" && 1 != 2 || false && true) {
+    \\  printf(foo);
+    \\}
+  ;
+  try testTokenize(conditions, &.{
+    Token.Tag.kw_if,
+    Token.Tag.l_paren,
+    Token.Tag.string_literal,
+    Token.Tag.double_equal,
+    Token.Tag.string_literal,
+    Token.Tag.and_,
+    Token.Tag.float_literal,
+    Token.Tag.not_equal,
+    Token.Tag.float_literal,
+    Token.Tag.or_,
+    Token.Tag.false,
+    Token.Tag.and_,
+    Token.Tag.true,
+    Token.Tag.r_paren,
+    Token.Tag.l_bracket,
+    Token.Tag.identifier,
+    Token.Tag.l_paren,
+    Token.Tag.identifier,
+    Token.Tag.r_paren,
+    Token.Tag.semicolon,
+    Token.Tag.r_bracket,
+    Token.Tag.eof,
+  }, &err);
+}
 
 fn expectEqualString(lhs: []const u8, rhs: []const u8) !void {
   if (std.mem.eql(u8, lhs, rhs)) {
@@ -865,4 +937,8 @@ fn testParse(source: [:0]const u8, err: *GenericError) !void {
 test "parser test" {
   var err = GenericError{};
   try testParse("float f = 3.14;", &err);
+  try testParse("float f;", &err);
+  try testParse("string s = \"foo\";", &err);
+  try testParse("vector v = '1 2 3';", &err);
+  try testParse(".vector vectorField;", &err);
 }
