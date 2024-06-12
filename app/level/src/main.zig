@@ -492,7 +492,7 @@ pub fn main() !void {
     // Only go for 60fps
     const timePerFrame = std.time.microTimestamp() - then;
     if (timePerFrame > 1000) {
-      model.fps = model.fps * 0.9 + 1000000.0 / @as(f32, @floatFromInt(timePerFrame)) * 0.1;
+      model.fps = model.fps * 0.99 + 1000000.0 / @as(f32, @floatFromInt(timePerFrame)) * 0.01;
     }
     const delay: i32 = 16 - as(i32, @divTrunc(timePerFrame, 1000));
     std.time.sleep(if (delay > 0) as(u32, delay) else 0);
