@@ -91,6 +91,48 @@ pub fn DrawContext(comptime pwidth: u32, comptime pheight: u32) type {
     // Draws a line.
     pub fn line(startx: i16, starty: i16, endx: i16, endy: i16) void {
       // std.debug.assert(startx >= 0 and starty >= 0 and endx >= 0 and endy >= 0);
+
+      // This is commented because, although debug performances are much better,
+      // release performances are worst!
+      const builtin = @import("builtin");
+      if (builtin.mode == .Debug) {
+        // This whole block is an optimization for vertical and horizontal line
+        const ux =
+          _transform[_a] * @as(f32, @floatFromInt(startx)) +
+          _transform[_c] * @as(f32, @floatFromInt(starty)) + _transform[_e];
+        var uy =
+          _transform[_b] * @as(f32, @floatFromInt(startx)) +
+          _transform[_d] * @as(f32, @floatFromInt(starty)) + _transform[_f];
+        const vx =
+          _transform[_a] * @as(f32, @floatFromInt(endx)) +
+          _transform[_c] * @as(f32, @floatFromInt(endy)) + _transform[_e];
+        var vy =
+          _transform[_b] * @as(f32, @floatFromInt(endx)) +
+          _transform[_d] * @as(f32, @floatFromInt(endy)) + _transform[_f];
+
+        if (ux > 0 and uy > 0 and vx > 0 and vy > 0 and
+            ux < contextWidth and uy < contextHeight and vx < contextWidth and vy < contextHeight) {
+          // If a line is entirely in the canvas
+          if (ux == vx) {
+            // vertical line
+            const x: u16 = @intFromFloat(ux);
+            if (uy > vy) std.mem.swap(@TypeOf(uy), &uy, &vy);
+            var y: u16 = @intFromFloat(uy);
+            while (y < @as(u16, @intFromFloat(vy))) : (y += 1) {
+              buffer[y * contextWidth + x] = color;
+            }
+            return;
+          } else if (uy == vy) {
+            // horizontal line
+            var startBuffer = @as(u16, @intFromFloat(uy)) * contextWidth + @as(u16, @intFromFloat(ux));
+            var endBuffer = @as(u16, @intFromFloat(vy)) * contextWidth + @as(u16, @intFromFloat(vx));
+            if (startBuffer > endBuffer) std.mem.swap(@TypeOf(startBuffer), &startBuffer, &endBuffer);
+            @memset(buffer[startBuffer..endBuffer], color);
+            return;
+          }
+        }
+      }
+      // Otherwise, we use a general but slow algorithm
       drawThickLine(startx, starty, endx, endy);
       // drawLineOverlap(startx, starty, endx, endy, 0);
       // drawLineWu(startx, starty, endx, endy, 0);
