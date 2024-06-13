@@ -15,6 +15,7 @@ const ParseError = error {
   NotAVectorMissingLeadingQuote,
   NotAVectorMissingClosingQuote,
   NotAVector,
+  NotAType,
 };
 
 fn makeError(errcode: ParseError, location: ?Location, err: *GenericError, comptime format: []const u8,
@@ -44,6 +45,8 @@ pub const Token = struct {
     r_paren,
     l_bracket,
     r_bracket,
+    l_brace,
+    r_brace,
     equal,
     double_equal,
     not_equal,
@@ -127,7 +130,6 @@ pub const Tokenizer = struct {
   pub fn next(self: *Self, err: *GenericError) !Token {
     const token = try self.peek(err);
     self.index = token.end + 1;
-    // std.log.warn("next {}", .{ token });
     return token;
   }
 
@@ -147,7 +149,6 @@ pub const Tokenizer = struct {
 
     var index = self.index;
     while (index < self.buffer.len) {
-      // std.log.err("character {c} state {}", .{ self.buffer[index], state });
       switch (state) {
         .start => switch (self.buffer[index]) {
           ' ', '\t', '\n', '\r' => index += 1, // ignore whitespace
@@ -163,14 +164,26 @@ pub const Tokenizer = struct {
             result.end = index;
             return result;
           },
-          '{' => {
+          '[' => {
             result.tag = .l_bracket;
             result.start = index;
             result.end = index;
             return result;
           },
-          '}' => {
+          ']' => {
             result.tag = .r_bracket;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
+          '{' => {
+            result.tag = .l_brace;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
+          '}' => {
+            result.tag = .r_brace;
             result.start = index;
             result.end = index;
             return result;
@@ -415,7 +428,7 @@ const Ast = struct {
       }
     }
 
-    pub fn fromName(name: []const u8) Self {
+    pub fn fromName(name: []const u8) !Self {
       if (std.mem.eql(u8, name, "void")) {
         return QType.Void;
       }
@@ -428,7 +441,7 @@ const Ast = struct {
       if (std.mem.eql(u8, name, "string")) {
         return QType.String;
       }
-      @panic("unknown name");
+      return error.NotAType;
     }
   };
 
@@ -461,14 +474,102 @@ const Ast = struct {
     value: ?Expression,
   };
 
+  const ParamType = enum {
+    elipsis,
+    declaration,
+  };
+
   const ParamDecl = struct {
-    type: QType,
-    name: []const u8,
+    param: union(ParamType) {
+      elipsis: void,
+      declaration: struct {
+        type: QType,
+        name: []const u8,
+      },
+    },
 
     const Self = @This();
     pub fn prettyPrint(self: Self, string: []u8) !usize {
-      const written = try self.type.prettyPrint(string);
-      return written + (try std.fmt.bufPrint(string, " {s}", .{ self.name })).len;
+      switch (self.param) {
+        .elipsis => {
+          return (try std.fmt.bufPrint(string, "...", .{})).len;
+        },
+        .declaration => |param| {
+          const written = try param.type.prettyPrint(string);
+          return written + (try std.fmt.bufPrint(string[written..], " {s}", .{ param.name })).len;
+        },
+      }
+    }
+  };
+
+  const IfStatement = struct {
+    condition: Expression,
+    statement: []const Statement,
+    else_statement: []const Statement,
+  };
+
+  const WhileStatement = struct {
+    condition: Expression,
+    statement: []const Statement,
+  };
+
+  const StatementType = enum {
+    var_decl,
+    return_statement,
+    if_statement,
+    while_statement,
+    do_while_statement,
+  };
+
+  const Statement = union {
+    var_decl: VarDecl,
+    return_statement: Expression,
+    if_statement: IfStatement,
+    while_statement: WhileStatement,
+    do_while_statement: WhileStatement,
+    expression: Expression,
+
+    const Self = @This();
+    pub fn prettyPrint(self: Self, string: []u8) !usize {
+      _ = self;
+      _ = string;
+      return 0;
+    }
+  };
+
+  const BodyType = enum {
+    statement_list,
+    builtin_immediate,
+  };
+
+  const Body = union(BodyType) {
+    statement_list: []const Statement,
+    builtin_immediate: u16,
+
+    const Self = @This();
+    pub fn prettyPrint(self: Self, string: []u8) !usize {
+      switch (self) {
+        .statement_list => |list| {
+          if (list.len == 1) {
+            return try list[0].prettyPrint(string);
+          } else {
+            var written: usize = 0;
+            written += (try std.fmt.bufPrint(string[written..], "{{", .{})).len;
+            if (list.len > 0) {
+              written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+            }
+            for (list) |statement| {
+              written += try statement.prettyPrint(string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+            }
+            written += (try std.fmt.bufPrint(string[written..], "}}", .{})).len;
+            return written;
+          }
+        },
+        .builtin_immediate => |index| {
+          return (try std.fmt.bufPrint(string, "#{}", .{ index })).len;
+        },
+      }
     }
   };
 
@@ -476,7 +577,9 @@ const Ast = struct {
     return_type: QType,
     name: []const u8,
     parameter_list: []const ParamDecl,
-    body: *Node,
+    body: ?Body,
+    // Storage for the parameter list
+    _storage: [32]ParamDecl = undefined,
   };
 
   const FieldDecl = struct {
@@ -489,6 +592,8 @@ const Ast = struct {
     return_type: QType,
     parameter_list: []const ParamDecl,
     index: usize,
+    // Storage for the parameter list
+    _storage: [32]ParamDecl = undefined,
   };
 
   const FloatLiteral = struct {
@@ -581,7 +686,7 @@ const Ast = struct {
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .fn_decl => |d| {
-          written += try d.return_type.prettyPrint(string);
+          written += try d.return_type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
           for (d.parameter_list, 0..) |param, i| {
             written += try param.prettyPrint(string[written..]);
@@ -589,8 +694,13 @@ const Ast = struct {
               written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
             }
           }
-          written += (try std.fmt.bufPrint(string[written..], ") {s} = ", .{ d.name })).len;
-          written += try d.body.prettyPrint(string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], ") {s}", .{ d.name })).len;
+          if (d.body) |body| {
+            written += (try std.fmt.bufPrint(string[written..], " = ", .{})).len;
+            written += try body.prettyPrint(string[written..]);
+          } else {
+            written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+          }
         },
         .field_decl => |d| {
           written += (try std.fmt.bufPrint(string[written..], ".", .{})).len;
@@ -601,6 +711,12 @@ const Ast = struct {
         .builtin_decl => |d| {
           written += try d.return_type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
+          for (d.parameter_list, 0..) |param, i| {
+            written += try param.prettyPrint(string[written..]);
+            if (i < d.parameter_list.len - 1) {
+              written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
+            }
+          }
           written += (try std.fmt.bufPrint(string[written..], ") {s} = #{};", .{ d.name, d.index })).len;
         },
         .expression => |expression| {
@@ -635,6 +751,13 @@ const Parser = struct {
     return Self {
       .tokenizer = Tokenizer.init(buffer),
     };
+  }
+
+  fn checkToken(self: *Self, token: Token, tag: Token.Tag, err: *GenericError) !void {
+    if (token.tag != tag) {
+      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, token.start),
+        err, "expecting {s} got {s}", .{ @tagName(tag), @tagName(token.tag) });
+    }
   }
 
   pub fn parse(self: *Self, err: *GenericError) !Ast.Node {
@@ -676,7 +799,10 @@ const Parser = struct {
     const identifierToken = try self.tokenizer.peek(err);
     switch (identifierToken.tag) {
       Token.Tag.identifier => {
-        return try self.parseVariableDefinition(typeToken, err);
+        return Ast.Node{ .var_decl = try self.parseVariableDefinition(typeToken, err) };
+      },
+      Token.Tag.l_paren => { // function declaration/definition
+        return try self.parseFunctionDefinition(typeToken, err);
       },
       else => |t| return makeError(ParseError.EmptySource,
         getLocation(self.tokenizer.buffer, identifierToken.start), err,
@@ -684,7 +810,7 @@ const Parser = struct {
     }
   }
 
-  fn parseVariableDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node {
+  fn parseVariableDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.VarDecl {
     const identifierToken = try self.tokenizer.next(err);
     if (identifierToken.tag != Token.Tag.identifier) {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
@@ -697,11 +823,11 @@ const Parser = struct {
         const scToken = try self.tokenizer.next(err);
         switch (scToken.tag) {
           Token.Tag.semicolon => {
-            return Ast.Node{ .var_decl = Ast.VarDecl{
-              .type = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
+            return Ast.VarDecl{
+              .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
               .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
               .value = expression,
-            }};
+            };
           },
           else => |t| return makeError(ParseError.EmptySource,
             getLocation(self.tokenizer.buffer, identifierToken.start), err,
@@ -709,11 +835,11 @@ const Parser = struct {
         }
       },
       Token.Tag.semicolon => {
-        return Ast.Node{ .var_decl = Ast.VarDecl{
-          .type = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
+        return Ast.VarDecl{
+          .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
           .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
           .value = null,
-        }};
+        };
       },
       else => return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
         "expecting '=' or ';' found {}", .{ eqlToken }),
@@ -735,7 +861,7 @@ const Parser = struct {
         "expecting semicolon found {}", .{ identifierToken });
     }
     return Ast.Node{ .field_decl = Ast.FieldDecl{
-      .type = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
+      .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
       .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
     }};
   }
@@ -764,13 +890,125 @@ const Parser = struct {
     }
   }
 
-  // fn parseRoot(self: *Self, err: *GenericError) !Ast.Node {
-  //   return Ast.Node{ .var_decl = Ast.VarDecl{
-  //     .type = Ast.QType.String,
-  //     .name = "foo",
-  //     .value = Ast.QValue{ .String = "something" },
-  //   }};
-  // }
+  fn parseFunctionDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node {
+    // Retrieve the return type
+    const atype = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]) catch |e| {
+      return makeError(e, getLocation(self.tokenizer.buffer, typeToken.start), err,
+        "Expecting a type got {s}", .{ self.tokenizer.buffer[typeToken.start..typeToken.end + 1] });
+    };
+    // pop l_paren
+    _ = try self.tokenizer.next(err);
+    // Create a temporary
+    var fnDecl = Ast.FnDecl{
+      .return_type = atype,
+      .name = "",
+      .parameter_list = &.{},
+      .body = null,
+    };
+    // Peek at the next token
+    var r_paren = try self.tokenizer.peek(err);
+    var i: u16 = 0;
+    // Parse the parameter declaration until we reach a r_paren
+    while (r_paren.tag != Token.Tag.r_paren) : (i += 1) {
+      fnDecl._storage[i] = try self.parseParamDeclaration(err);
+      r_paren = try self.tokenizer.peek(err);
+      // Ignore the comma but expect it
+      if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
+    }
+    // Pop r_paren and expect the name of the function
+    _ = try self.tokenizer.next(err);
+    const identifierToken = try self.tokenizer.next(err);
+    if (identifierToken.tag != Token.Tag.identifier) {
+      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
+        "expecting function name found {}", .{ identifierToken });
+    }
+    fnDecl.name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1];
+    fnDecl.parameter_list = fnDecl._storage[0..i];
+    // Now parse the body
+    const bodyToken = try self.tokenizer.next(err);
+    if (bodyToken.tag == Token.Tag.l_bracket) {
+      // This is a frame specifier
+      // TODO: Support frame specifier
+      unreachable;
+    }
+    switch (bodyToken.tag) {
+      Token.Tag.semicolon => {
+        // We are dealing with a function declaration
+        return Ast.Node{ .fn_decl = fnDecl };
+      },
+      Token.Tag.equal => {
+        // We have a body
+        const functionContentToken = try self.tokenizer.peek(err);
+        switch (functionContentToken.tag) {
+          Token.Tag.builtin_literal => {
+            // This is a builtin declaration
+            const builtinImmediateToken = try self.tokenizer.next(err);
+            const scToken = try self.tokenizer.next(err);
+            if (scToken.tag != Token.Tag.semicolon) {
+              return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, bodyToken.start), err,
+                "expecting semicolon got {}", .{ bodyToken });
+            }
+            const bl = self.tokenizer.buffer[builtinImmediateToken.start + 1..builtinImmediateToken.end + 1];
+            var bDecl = Ast.BuiltinDecl{
+              .return_type = atype,
+              .name = fnDecl.name,
+              .parameter_list = &.{},
+              .index = try std.fmt.parseInt(u16, bl, 10),
+              ._storage = fnDecl._storage,
+            };
+            bDecl.parameter_list = bDecl._storage[0..i];
+            return Ast.Node{ .builtin_decl = bDecl };
+          },
+          Token.Tag.l_brace => {
+            // This is a statement list
+            fnDecl.body = Ast.Body{ .statement_list = try self.parseStatement(err) };
+            return Ast.Node{ .fn_decl = fnDecl };
+          },
+          else => {
+            // This is an expression
+            const expression = try self.parseExpression(err);
+            fnDecl.body = Ast.Body{ .statement_list = &.{ Ast.Statement{ .expression = expression } } };
+            return Ast.Node{ .fn_decl = fnDecl };
+          }
+        }
+      },
+      else => {},
+    }
+
+    return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, bodyToken.start), err,
+      "expecting function body {}", .{ bodyToken });
+  }
+
+  fn parseStatement(self: *Self, err: *GenericError) ![]Ast.Statement {
+    const l_brace = try self.tokenizer.next(err);
+    try self.checkToken(l_brace, Token.Tag.l_brace, err);
+    var r_brace = try self.tokenizer.peek(err);
+    while (r_brace.tag != Token.Tag.r_brace) {
+      // TODO
+      r_brace = try self.tokenizer.peek(err);
+    }
+    // pop r_brace
+    _ = try self.tokenizer.next(err);
+    return &.{};
+  }
+
+  fn parseParamDeclaration(self: *Self, err: *GenericError) !Ast.ParamDecl {
+    const typeToken = try self.tokenizer.next(err);
+    if (typeToken.tag == Token.Tag.elipsis) {
+      return Ast.ParamDecl{ .param = .elipsis };
+    }
+    const atype = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]) catch |e| {
+      return makeError(e, getLocation(self.tokenizer.buffer, typeToken.start), err,
+        "Expecting a type got {s}", .{ self.tokenizer.buffer[typeToken.start..typeToken.end + 1] });
+    };
+    const identifierToken = try self.tokenizer.next(err);
+    if (identifierToken.tag != Token.Tag.identifier) {
+      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
+        "expecting identifier found {}", .{ identifierToken });
+    }
+    const name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1];
+    return Ast.ParamDecl{ .param = .{ .declaration = .{ .type = atype, .name = name } } };
+  }
 };
 
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag, err: *GenericError) !void {
@@ -837,8 +1075,8 @@ test "tokenizer test" {
     Token.Tag.r_paren,
     Token.Tag.identifier,
     Token.Tag.equal,
-    Token.Tag.l_bracket,
-    Token.Tag.r_bracket,
+    Token.Tag.l_brace,
+    Token.Tag.r_brace,
     Token.Tag.eof,
   }, &err);
   try testTokenize("void\t(string str, ...)\tprint = #99;", &.{
@@ -870,7 +1108,7 @@ test "tokenizer test" {
     Token.Tag.r_paren,
     Token.Tag.identifier,
     Token.Tag.equal,
-    Token.Tag.l_bracket,
+    Token.Tag.l_brace,
     Token.Tag.type,
     Token.Tag.identifier,
     Token.Tag.equal,
@@ -882,7 +1120,7 @@ test "tokenizer test" {
     Token.Tag.r_paren,
     Token.Tag.semicolon,
     Token.Tag.comment,
-    Token.Tag.r_bracket,
+    Token.Tag.r_brace,
     Token.Tag.eof,
   }, &err);
 
@@ -906,13 +1144,13 @@ test "tokenizer test" {
     Token.Tag.and_,
     Token.Tag.true,
     Token.Tag.r_paren,
-    Token.Tag.l_bracket,
+    Token.Tag.l_brace,
     Token.Tag.identifier,
     Token.Tag.l_paren,
     Token.Tag.identifier,
     Token.Tag.r_paren,
     Token.Tag.semicolon,
-    Token.Tag.r_bracket,
+    Token.Tag.r_brace,
     Token.Tag.eof,
   }, &err);
 }
@@ -941,4 +1179,10 @@ test "parser test" {
   try testParse("string s = \"foo\";", &err);
   try testParse("vector v = '1 2 3';", &err);
   try testParse(".vector vectorField;", &err);
+  try testParse("void () foo;", &err);
+  try testParse("void () foo = #42;", &err);
+  try testParse("void (string s) foo;", &err);
+  try testParse("void (string s, ...) foo;", &err);
+  try testParse("void () main = {}", &err);
+  try testParse("void (float f, vector v) main = {}", &err);
 }

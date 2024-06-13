@@ -19,12 +19,13 @@ immediate = <literal> | <statement>
 literal = float_literal | vector_literal | string_literal
 statement =
   '{' statement { statement } '}'
-  | <expression> ';'
+  | <variable_definition> ';'
   | 'local' <variable_definition> ';'
   | 'return' <expression> ';'
   | 'if' ( <expression> ) <statement> [ 'else' <statement> ]
   | 'while' '(' <expression> ')' <statement>
   | 'do' <statement> 'while' '(' <expression> ')'
+  | <expression> ';'
 expression =
   <identifier>
   | <frame_identifier>
