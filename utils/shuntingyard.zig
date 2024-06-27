@@ -200,6 +200,7 @@ pub const Tokenizer = struct {
       add_unop,
       sub_unop,
       float_literal,
+      identifier,
     };
   };
 
@@ -217,7 +218,11 @@ pub const Tokenizer = struct {
   }
 
   pub fn peek(self: *Self) !Token {
-    const State = enum { start, float_literal };
+    const State = enum {
+      start,
+      float_literal,
+      identifier,
+    };
 
     var state = State.start;
     var result = Token {
@@ -286,6 +291,12 @@ pub const Tokenizer = struct {
             result.start = index;
             result.end = index;
           },
+          'a'...'z', 'A'...'Z', '_' => {
+            state = State.identifier;
+            result.tag = .identifier;
+            result.start = index;
+            result.end = index;
+          },
           else => {
             try stderr.print("error: unexpected character {} ({c}) at position {}\n", .{ c, c, index });
             return error.UnexpectedCharacter;
@@ -297,7 +308,15 @@ pub const Tokenizer = struct {
           },
           else => {
             return result;
-          }
+          },
+        },
+        .identifier => switch (c) {
+          'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+            result.end = index;
+          },
+          else => {
+            return result;
+          },
         },
       }
     }
@@ -402,7 +421,8 @@ fn shuntingyard(expr: [:0]const u8, input_stack: *Stack(Tokenizer.Token),
           try input_stack.push(token);
         }
       },
-      Tokenizer.Token.Tag.float_literal => {
+      Tokenizer.Token.Tag.float_literal,
+      Tokenizer.Token.Tag.identifier => {
         // It's not an operator, push it on the stack
         try output_stack.push(token);
       },
@@ -435,8 +455,13 @@ fn shuntingyard(expr: [:0]const u8, input_stack: *Stack(Tokenizer.Token),
 
 const NodeType = enum {
   operand,
+  variable,
   binary_operator,
   unary_operator,
+};
+
+const VariableNode = struct {
+  name: []const u8,
 };
 
 const OperandNode = struct {
@@ -456,6 +481,7 @@ const UnaryOperatorNode = struct {
 
 const Node = union(NodeType) {
   operand: OperandNode,
+  variable: VariableNode,
   binary_operator: BinaryOperatorNode,
   unary_operator: UnaryOperatorNode,
 };
@@ -489,6 +515,12 @@ fn makeTree(expression: []const u8, rpn_stack: *Stack(Tokenizer.Token), list: *A
         }});
         return &list.list[index];
       },
+      Tokenizer.Token.Tag.identifier => {
+        const index = try list.add(Node{ .variable = VariableNode{
+          .name = head.getValue(expression),
+        }});
+        return &list.list[index];
+      },
       else => return error.UnexpectedToken,
     }
   }
@@ -518,6 +550,10 @@ fn prettyPrint(node: Node, writer: anytype) !usize {
     .operand => |op| {
       try writer.writeAll(op.value);
       written += op.value.len;
+    },
+    .variable => |op| {
+      try writer.writeAll(op.name);
+      written += op.name.len;
     },
     .unary_operator => |unop| {
       try writer.writeAll("(");
@@ -552,11 +588,11 @@ pub fn parse(comptime N: comptime_int, nodelist: []Node, expression: [:0]const u
   return root;
 }
 
-pub fn evaluate(comptime T: type, node: Node) !T {
+pub fn evaluate(comptime T: type, variables: std.StaticStringMap(T), node: Node) !T {
   switch (node) {
     .binary_operator => |binop| {
-      const lhs = try evaluate(T, binop.lhs.*);
-      const rhs = try evaluate(T, binop.rhs.*);
+      const lhs = try evaluate(T, variables, binop.lhs.*);
+      const rhs = try evaluate(T, variables, binop.rhs.*);
       return switch (binop.operator) {
         .add_op => lhs + rhs,
         .sub_op => lhs - rhs,
@@ -569,10 +605,17 @@ pub fn evaluate(comptime T: type, node: Node) !T {
     .operand => |op| {
       return std.fmt.parseFloat(T, op.value);
     },
+    .variable => |v| {
+      if (variables.get(v.name)) |value| {
+        return value;
+      } else {
+        return error.UnknownVariable;
+      }
+    },
     .unary_operator => |unop| {
       switch (unop.operator) {
-        .add_unop => return try evaluate(T, unop.rhs.*),
-        .sub_unop => return -(try evaluate(T, unop.rhs.*)),
+        .add_unop => return try evaluate(T, variables, unop.rhs.*),
+        .sub_unop => return -(try evaluate(T, variables, unop.rhs.*)),
         else => unreachable,
       }
     },
@@ -597,7 +640,7 @@ pub fn main() !void {
 
   var nodelist: [1024]Node = undefined;
   const tree = try parse(1024, &nodelist, args[1]);
-  const value = try evaluate(f64, tree.*);
+  const value = try evaluate(f64, .{}, tree.*);
   try stdout.print("{d}\n", .{ value });
 }
 
@@ -683,19 +726,22 @@ test "parse" {
   try testParse("(1+2)^-(2+5*-(2+4))", "((1+2)^(-(2+(5*(-(2+4))))))");
 }
 
-fn testEvaluate(comptime T: type, expression: [:0]const u8, expected: T) !void {
+fn testEvaluate(comptime T: type, variables: std.StaticStringMap(T), expression: [:0]const u8,
+  expected: T) !void {
   const expectEqual = std.testing.expectEqual;
 
   var nodelist: [256]Node = undefined;
   const tree = try parse(256, &nodelist, expression);
-  try expectEqual(try evaluate(T, tree.*), expected);
+  try expectEqual(try evaluate(T, variables, tree.*), expected);
 }
 
 test "evaluate" {
-  try testEvaluate(f32, "1+2", 3);
-  try testEvaluate(f32, "        1 +2         *    3     ", 7);
-  try testEvaluate(f32, "1+2+3", 6);
-  try testEvaluate(f32, "1+(2+3)", 6);
-  try testEvaluate(f64, "3 + 4 * 2 / ( 1 - 5 ) ^ 2 ^ 3", 3.0001220703125);
-  try testEvaluate(f64, "(1+2)^-(2+5*-(2+4))", 22876792454961);
+  try testEvaluate(f32, .{}, "1+2", 3);
+  try testEvaluate(f32, .{}, "        1 +2         *    3     ", 7);
+  try testEvaluate(f32, .{}, "1+2+3", 6);
+  try testEvaluate(f32, .{}, "1+(2+3)", 6);
+  try testEvaluate(f64, .{}, "3 + 4 * 2 / ( 1 - 5 ) ^ 2 ^ 3", 3.0001220703125);
+  try testEvaluate(f64, .{}, "(1+2)^-(2+5*-(2+4))", 22876792454961);
+  const variables = std.StaticStringMap(f64).initComptime(.{ .{ "two", 2 } });
+  try testEvaluate(f64, variables, "(1+two)^-(2+5*-(2+4))", 22876792454961);
 }
