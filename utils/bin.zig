@@ -7,29 +7,12 @@
 //  https://en.wikipedia.org/wiki/VGA_text_mode
 //  https://en.wikipedia.org/wiki/Code_page_437
 //
-// cmd: clear && zig build-exe -freference-trace bin.zig && ./bin ../data/pak/end1.bin
+// cmd: clear && zig build-exe -freference-trace -OReleaseSmall bin.zig && ./bin ../data/pak/end1.bin
 
 const std = @import("std");
+const misc = @import("misc.zig");
 
 const stdout = std.io.getStdOut().writer();
-
-fn load(pathname: []const u8) ![]align(4096) const u8 {
-  var file = try std.fs.cwd().openFile(pathname, .{});
-  defer file.close();
-
-  const size = try file.getEndPos();
-  const buffer = try std.posix.mmap(
-    null,
-    size,
-    std.posix.PROT.READ,
-    .{ .TYPE = .SHARED },
-    file.handle,
-    0,
-  );
-  errdefer std.posix.munmap(buffer);
-
-  return buffer;
-}
 
 const code_page_457 = [_][]const u8 {
   "?",  "☺", "☻",  "♥", "♦", "♣", "♠", "•", "◘", "○", "◙", "♂", "♀",  "♪", "♫", "☼",
@@ -59,6 +42,25 @@ const vga_color_palette = [_]std.io.tty.Color {
   .red,   .red,   .red,     .white,
 };
 
+pub fn displayBin(writer: anytype, buffer: []const u8) !void {
+  const ttyconf = std.io.tty.detectConfig(writer);
+  for (0..25) |row| {
+    for (0..80) |col| {
+      std.debug.assert((row * 80 + col) * 2 + 1 < buffer.len);
+      const codepoint = buffer[(row * 80 + col) * 2    ];
+      const attribute = buffer[(row * 80 + col) * 2 + 1];
+
+      const palette_index = attribute & 0x0F;
+      try ttyconf.setColor(stdout, vga_color_palette[palette_index]);
+      if (attribute & 0x80 != 0) { // Supposed to be bling
+        try ttyconf.setColor(stdout, .bold);
+      }
+      try stdout.print("{s}", .{ code_page_457[codepoint] });
+    }
+    try stdout.print("\n", .{});
+  }
+}
+
 pub fn main() !void {
   var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
   const allocator = general_purpose_allocator.allocator();
@@ -75,23 +77,8 @@ pub fn main() !void {
     return;
   }
 
-  const buffer = try load(args[1]);
+  const buffer = try misc.load(args[1]);
   defer std.posix.munmap(buffer);
 
-  const ttyconf = std.io.tty.detectConfig(std.io.getStdOut());
-  for (0..25) |row| {
-    for (0..80) |col| {
-      std.debug.assert((row * 80 + col) * 2 + 1 < buffer.len);
-      const codepoint = buffer[(row * 80 + col) * 2    ];
-      const attribute = buffer[(row * 80 + col) * 2 + 1];
-
-      const palette_index = attribute & 0x0F;
-      try ttyconf.setColor(stdout, vga_color_palette[palette_index]);
-      if (attribute & 0x80 != 0) { // Supposed to be bling
-        try ttyconf.setColor(stdout, .bold);
-      }
-      try stdout.print("{s}", .{ code_page_457[codepoint] });
-    }
-    try stdout.print("\n", .{});
-  }
+  try displayBin(std.io.getStdOut(), buffer);
 }
