@@ -4,6 +4,7 @@ const std = @import("std");
 const ioAdapter = @import("io-adapter.zig");
 const zlm = @import("zlm.zig").SpecializeOn(f32);
 
+const misc = @import("misc.zig");
 const draw = @import("draw.zig");
 const pakModule = @import("pak.zig");
 const bspModule = @import("bsp.zig");
@@ -16,24 +17,6 @@ const CANVAS_WIDTH: i16 = 640;
 const CANVAS_HEIGHT: i16 = 480;
 const VIEWPORT_WIDTH: i16 = 640 * 2;
 const VIEWPORT_HEIGHT: i16 = 480 * 2;
-
-fn load(pathname: []const u8) ![]align(4096) const u8 {
-  var file = try std.fs.cwd().openFile(pathname, .{});
-  defer file.close();
-
-  const size = try file.getEndPos();
-  const buffer = try std.posix.mmap(
-    null,
-    size,
-    std.posix.PROT.READ,
-    .{ .TYPE = .SHARED },
-    file.handle,
-    0,
-  );
-  errdefer std.posix.munmap(buffer);
-
-  return buffer;
-}
 
 fn getBspOffset(allocator: std.mem.Allocator, buffer: []const u8, mapFilepath: []const u8) !usize {
   const entries = try pakModule.loadPak(allocator, buffer);
@@ -407,7 +390,7 @@ pub fn main() !void {
   const mapFilepath = args[2];
 
   // Load pak file
-  const pak = try load(pakFilepath);
+  const pak = try misc.load(pakFilepath);
   defer std.posix.munmap(pak);
   // Load bsp file
   var bsp = try bspModule.Bsp.init(allocator, pak[try getBspOffset(allocator, pak, mapFilepath)..]);
