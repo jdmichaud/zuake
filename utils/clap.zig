@@ -1,3 +1,86 @@
+// A very simple command line argument parser.
+//
+// The purpose is to be simple, modifiable and easily embeddable. Just
+// copy-paste is into your project and that's it.
+//
+// Usage:
+// ```zig
+// const args = try std.process.argsAlloc(allocator);
+// defer std.process.argsFree(allocator, args);
+//
+// const parsedArgs = clap.parser(clap.ArgDescriptor{
+//   .name = "qvm",
+//   .description = "A QuakeC virtual machine",
+//   .withHelp = true,
+//   .version = "0.1.0",
+//   .expectArgs = &[_][]const u8{ "datfile" },
+//   .options = &[_]clap.OptionDescription{ .{
+//     .short = "t",
+//     .long = "trace",
+//     .help = "Enable tracing of instructions",
+//   }, .{
+//     .short = "e",
+//     .long = "verbose",
+//     .help = "Display additional information about the VM",
+//   }, .{
+//     .short = "m",
+//     .long = "memory-size",
+//     .arg = .{ .name = "memory", .type = []const u8 },
+//     .help = "Amount of memory to allocate for the VM (-m 12, -m 64K, -m 1M)",
+//   }, .{
+//     .short = "j",
+//     .long = "jump-to",
+//     .arg = .{ .name = "function", .type = []const u8 },
+//     .help = "Jump to function on startup",
+//   }, .{
+//     .short = "b",
+//     .long = "bsp-file",
+//     .arg = .{ .name = "bspfile", .type = []const u8 },
+//     .help = "Load a BSP file",
+//   }, .{
+//     .short = "r",
+//     .long = "run",
+//     .help = "Run the event loop (triggering the nextthink timers)",
+//   } },
+// }).parse(args);
+//
+// const filepath = parsedArgs.arguments.items[0];
+// const memsize = if (args.getOption([]const u8, "memory-size")) |memsizeArg| blkinner: {
+//   const lastChar = memsizeArg[memsizeArg.len - 1];
+//   break :blkinner switch (lastChar) {
+//     'k', 'K' => try std.fmt.parseInt(usize, memsizeArg[0..memsizeArg.len - 1], 10) * 1024,
+//     'm', 'M' => try std.fmt.parseInt(usize, memsizeArg[0..memsizeArg.len - 1], 10) * 1024 * 1024,
+//     else => try std.fmt.parseInt(usize, memsizeArg, 10),
+//   };
+// } else 1024 * 1024 * 1; // 1Mb by default;
+// // Create the VM
+// var vm = try VM.init(allocator, .{
+//   .entries = null,
+// }, .{
+//   .trace = parsedArgs.getSwitch("trace"),
+//   .memsize = memsize,
+//   .verbose = parsedArgs.getSwitch("verbose"),
+// });
+// defer vm.deinit();
+// ```
+// Running with the `--help` option will show:
+// ```
+// qvm (0.1.0) A QuakeC virtual machine
+// Usage: qvm [OPTIONS] datfile
+//
+// Options:
+//     -t,--trace           Enable tracing of instructions
+//     -e,--verbose         Display additional information about the VM
+//     -m,--memory-size memory
+//                          Amount of memory to allocate for the VM (-m 12, -m 64K, -m 1M)
+//     -j,--jump-to function
+//                          Jump to function on startup
+//     -b,--bsp-file bspfile
+//                          Load a BSP file
+//     -r,--run             Run the event loop (triggering the nextthink timers)
+//
+// ```
+
 const std = @import("std");
 
 const stdout = std.io.getStdOut().writer();
