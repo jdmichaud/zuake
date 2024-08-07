@@ -5,6 +5,7 @@
 //
 // cmd: clear && zig build-exe -freference-trace shuntingyard.zig && ./shuntingyard "1+2"
 // test: clear && zig test -freference-trace shuntingyard.zig
+// zig test lib/std/zig/Parse.zig --test-filter "jd"
 
 const std = @import("std");
 
@@ -456,8 +457,13 @@ fn shuntingyard(expr: [:0]const u8, input_stack: *Stack(Tokenizer.Token),
 const NodeType = enum {
   operand,
   variable,
+  fncall,
   binary_operator,
   unary_operator,
+};
+
+const FunctionCallNode = struct {
+  parameters: [8]*Node = .{ null } ** 8,
 };
 
 const VariableNode = struct {
@@ -482,6 +488,7 @@ const UnaryOperatorNode = struct {
 const Node = union(NodeType) {
   operand: OperandNode,
   variable: VariableNode,
+  fncall: FunctionCallNode,
   binary_operator: BinaryOperatorNode,
   unary_operator: UnaryOperatorNode,
 };
@@ -555,6 +562,7 @@ fn prettyPrint(node: Node, writer: anytype) !usize {
       try writer.writeAll(op.name);
       written += op.name.len;
     },
+    .fncall => unreachable,
     .unary_operator => |unop| {
       try writer.writeAll("(");
       written += 1;
@@ -588,11 +596,15 @@ pub fn parse(comptime N: comptime_int, nodelist: []Node, expression: [:0]const u
   return root;
 }
 
-pub fn evaluate(comptime T: type, variables: std.StaticStringMap(T), node: Node) !T {
+fn Builtins(comptime T: type) type {
+  return std.StaticStringMap(*const fn(argv: []const T) T);
+}
+
+pub fn evaluate(comptime T: type, builtins: Builtins(T), variables: std.StaticStringMap(T), node: Node) !T {
   switch (node) {
     .binary_operator => |binop| {
-      const lhs = try evaluate(T, variables, binop.lhs.*);
-      const rhs = try evaluate(T, variables, binop.rhs.*);
+      const lhs = try evaluate(T, builtins, variables, binop.lhs.*);
+      const rhs = try evaluate(T, builtins, variables, binop.rhs.*);
       return switch (binop.operator) {
         .add_op => lhs + rhs,
         .sub_op => lhs - rhs,
@@ -612,10 +624,11 @@ pub fn evaluate(comptime T: type, variables: std.StaticStringMap(T), node: Node)
         return error.UnknownVariable;
       }
     },
+    .fncall => unreachable,
     .unary_operator => |unop| {
       switch (unop.operator) {
-        .add_unop => return try evaluate(T, variables, unop.rhs.*),
-        .sub_unop => return -(try evaluate(T, variables, unop.rhs.*)),
+        .add_unop => return try evaluate(T, builtins, variables, unop.rhs.*),
+        .sub_unop => return -(try evaluate(T, builtins, variables, unop.rhs.*)),
         else => unreachable,
       }
     },
@@ -714,6 +727,7 @@ fn testParse(expression: [:0]const u8, expected: []const u8) !void {
   var fbs = std.io.fixedBufferStream(&output);
   const writer = fbs.writer();
   const written = try prettyPrint(tree.*, writer);
+  std.log.warn("output {s}", .{ output[0..written] });
   try expect(eql(u8, output[0..written], expected));
 }
 
@@ -724,24 +738,32 @@ test "parse" {
   try testParse("1+(2+3)", "(1+(2+3))");
   try testParse("3 + 4 * 2 / ( 1 - 5 ) ^ 2 ^ 3", "(3+((4*2)/((1-5)^(2^3))))");
   try testParse("(1+2)^-(2+5*-(2+4))", "((1+2)^(-(2+(5*(-(2+4))))))");
+  try testParse("one + two - 2", "((one+two)-2)");
+  try testParse("one + sin(pi) - 2", "((one+(sin(pi)))-2)");
 }
 
-fn testEvaluate(comptime T: type, variables: std.StaticStringMap(T), expression: [:0]const u8,
+fn testEvaluate(comptime T: type, builtins: Builtins(T), variables: std.StaticStringMap(T), expression: [:0]const u8,
   expected: T) !void {
   const expectEqual = std.testing.expectEqual;
 
   var nodelist: [256]Node = undefined;
   const tree = try parse(256, &nodelist, expression);
-  try expectEqual(try evaluate(T, variables, tree.*), expected);
+  try expectEqual(try evaluate(T, builtins, variables, tree.*), expected);
+}
+
+fn sin(argv: []const f64) f64 {
+  return std.math.sin(argv[0]);
 }
 
 test "evaluate" {
-  try testEvaluate(f32, .{}, "1+2", 3);
-  try testEvaluate(f32, .{}, "        1 +2         *    3     ", 7);
-  try testEvaluate(f32, .{}, "1+2+3", 6);
-  try testEvaluate(f32, .{}, "1+(2+3)", 6);
-  try testEvaluate(f64, .{}, "3 + 4 * 2 / ( 1 - 5 ) ^ 2 ^ 3", 3.0001220703125);
-  try testEvaluate(f64, .{}, "(1+2)^-(2+5*-(2+4))", 22876792454961);
+  try testEvaluate(f32, .{}, .{}, "1+2", 3);
+  try testEvaluate(f32, .{}, .{}, "        1 +2         *    3     ", 7);
+  try testEvaluate(f32, .{}, .{}, "1+2+3", 6);
+  try testEvaluate(f32, .{}, .{}, "1+(2+3)", 6);
+  try testEvaluate(f64, .{}, .{}, "3 + 4 * 2 / ( 1 - 5 ) ^ 2 ^ 3", 3.0001220703125);
+  try testEvaluate(f64, .{}, .{}, "(1+2)^-(2+5*-(2+4))", 22876792454961);
   const variables = std.StaticStringMap(f64).initComptime(.{ .{ "two", 2 } });
-  try testEvaluate(f64, variables, "(1+two)^-(2+5*-(2+4))", 22876792454961);
+  try testEvaluate(f64, .{}, variables, "(1+two)^-(2+5*-(2+4))", 22876792454961);
+  const builtins = Builtins(f64).initComptime(.{ .{ "sin", sin } });
+  try testEvaluate(f64, builtins, variables, "sin(3.14159265359)", 0);
 }

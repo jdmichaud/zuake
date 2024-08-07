@@ -3,7 +3,6 @@
 // reference:
 // https://github.com/vkazanov/tree-sitter-quakec/blob/main/grammar.js
 //
-// cmd: clear && zig build-exe -freference-trace qvm.zig && ./qvm ../data/pak/progs.dat
 // test: clear && zig test -freference-trace qcc.zig
 const std = @import("std");
 const dat = @import("dat");
@@ -325,6 +324,7 @@ pub const Tokenizer = struct {
           else => |c| {
             _ = try std.fmt.bufPrintZ(&err.message, "unexpected character: {c}", .{ c });
             err.location = getLocation(self.buffer, index);
+            std.log.warn("expected {c}", .{ c });
             return error.UnexpectedCharacter;
           },
         },
@@ -413,6 +413,41 @@ pub const Tokenizer = struct {
 };
 
 const Ast = struct {
+  const Precedence = enum(i8) {
+    ASSIGNMENT  = -2,
+    CONDITIONAL = -1,
+    DEFAULT     = 0,
+    LOGICAL_OR  = 1,
+    LOGICAL_AND = 2,
+    RELATIONAL  = 3,
+    ADD         = 4,                     // same as substraction
+    BITWISE_OR  = 5,
+    BITWISE_AND = 6,
+    MULTIPLY    = 7,                 // same as division
+    UNARY       = 8,                    // positive/negative
+    CALL        = 9,
+    FIELD       = 10,
+    SUBSCRIPT   = 11,
+  };
+
+  const operator_precedence = std.StaticStringMap(Precedence).init(.{
+    .{ "+", Precedence.ADD },
+    .{ "-", Precedence.ADD },
+    .{ "*", Precedence.MULTIPLY },
+    .{ "/", Precedence.MULTIPLY },
+    .{ "%", Precedence.MULTIPLY },
+    .{ "||", Precedence.LOGICAL_OR },
+    .{ "&&", Precedence.LOGICAL_AND },
+    .{ "|", Precedence.BITWISE_OR },
+    .{ "&", Precedence.BITWISE_AND },
+    .{ "==", Precedence.RELATIONAL },
+    .{ "!=", Precedence.RELATIONAL },
+    .{ ">", Precedence.RELATIONAL },
+    .{ ">=", Precedence.RELATIONAL },
+    .{ "<=", Precedence.RELATIONAL },
+    .{ "<", Precedence.RELATIONAL },
+  });
+
   const QType = enum {
     Void,
     Float,
@@ -473,6 +508,7 @@ const Ast = struct {
     type: QType,
     name: []const u8,
     value: Node.Index,
+    local: bool,
   };
 
   const ParamType = enum {
@@ -630,10 +666,15 @@ const Ast = struct {
     }
   };
 
+  const Identifier = struct {
+    name: []const u8,
+  };
+
   const Expression = union(ExpressionType) {
     float_literal: FloatLiteral,
     string_literal: StringLiteral,
     vector_literal: VectorLiteral,
+    identifier: Identifier,
 
     pub fn prettyPrint(self: @This(), string: []u8) !usize {
       var written: usize = 0;
@@ -924,7 +965,7 @@ const Parser = struct {
     const identifierToken = try self.tokenizer.peek(err);
     switch (identifierToken.tag) {
       Token.Tag.identifier => {
-        return try self.parseVariableDefinition(typeToken, err);
+        return try self.parseVariableDefinition(typeToken, false, err);
       },
       Token.Tag.l_paren => { // function declaration/definition
         return try self.parseFunctionDefinition(typeToken, err);
@@ -935,7 +976,7 @@ const Parser = struct {
     }
   }
 
-  fn parseVariableDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node.Index {
+  fn parseVariableDefinition(self: *Self, typeToken: Token, local: bool, err: *GenericError) !Ast.Node.Index {
     const identifierToken = try self.tokenizer.next(err);
     if (identifierToken.tag != Token.Tag.identifier) {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
@@ -952,6 +993,7 @@ const Parser = struct {
               .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
               .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
               .value = expression,
+              .local = local,
             }});
           },
           else => |t| return makeError(ParseError.EmptySource,
@@ -964,6 +1006,7 @@ const Parser = struct {
           .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
           .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
           .value = 0,
+          .local = local,
         }});
       },
       else => return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
@@ -1015,6 +1058,12 @@ const Parser = struct {
         return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
           .vector_literal = value,
         } });
+      },
+      Token.Tag.identifier => {
+        const name = self.tokenizer.buffer[token.start..token.end + 1];
+        return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+          .float_literal = Ast.Identifier{ .name = name } },
+        });
       },
       else => return makeError(ParseError.EmptySource, getLocation(self.tokenizer.buffer, token.start), err,
        "unexpected token {}", .{ token }),
@@ -1090,7 +1139,7 @@ const Parser = struct {
           Token.Tag.l_brace => {
             // This is a statement list
             fnDecl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
-              .statement_list = try self.parseStatement(err),
+              .statement_list = try self.parseStatements(err),
             } });
             return self.insertNode(Ast.Payload{ .fn_decl = fnDecl });
           },
@@ -1111,18 +1160,63 @@ const Parser = struct {
       "expecting function body {}", .{ bodyToken });
   }
 
-  fn parseStatement(self: *Self, err: *GenericError) !Ast.NodeList {
-    const l_brace = try self.tokenizer.next(err);
-    try self.checkToken(l_brace, Token.Tag.l_brace, err);
+  fn parseStatements(self: *Self, err: *GenericError) !Ast.NodeList {
+    var nodeList = Ast.NodeList.init(0, self.nodes);
+    const l_brace = try self.tokenizer.peek(err);
+    if (l_brace.tag != Token.Tag.l_brace) {
+      // There is only one statment (no braces)
+      nodeList.appendNode(try self.parseStatement(err));
+      return nodeList;
+    }
+    // pop l_brace
+    _ = try self.tokenizer.next(err);
     var r_brace = try self.tokenizer.peek(err);
-    const nodeList = Ast.NodeList.init(0, self.nodes);
     while (r_brace.tag != Token.Tag.r_brace) {
-      // TODO
+      nodeList.appendNode(try self.parseStatement(err));
       r_brace = try self.tokenizer.peek(err);
     }
     // pop r_brace
     _ = try self.tokenizer.next(err);
     return nodeList;
+  }
+
+  fn parseStatement(self: *Self, err: *GenericError) !Ast.Node.Index {
+    const firstToken = try self.tokenizer.next(err);
+    var index: Ast.Node.Index = 0;
+    switch (firstToken.tag) {
+      .kw_local => {
+        index = try self.parseVariableDefinition(try self.tokenizer.next(err), true, err);
+      },
+      .kw_return => {
+        index = try self.parseExpression(err);
+        std.log.warn("next {}", .{ try self.tokenizer.peek(err) });
+        const scToken = try self.tokenizer.next(err);
+        try self.checkToken(scToken, Token.Tag.semicolon, err);
+      },
+      .kw_if => {
+
+      },
+      .kw_while => {
+
+      },
+      .kw_do => {
+
+      },
+      else => {
+        std.log.warn("switch else", .{});
+        // If the first token is a type, it is a global variable declaration
+        const isError = Ast.QType.fromName(self.tokenizer.buffer[firstToken.start..firstToken.end + 1]);
+        if (isError == error.NotAType) {
+          // Otherwise it is an expression
+          index = try self.parseExpression(err);
+          const scToken = try self.tokenizer.next(err);
+          try self.checkToken(scToken, Token.Tag.semicolon, err);
+        } else {
+          index = try self.parseVariableDefinition(firstToken, false, err);
+        }
+      }
+    }
+    return index;
   }
 
   fn parseParamDeclaration(self: *Self, err: *GenericError) !Ast.Node.Index {
@@ -1325,4 +1419,10 @@ test "parser test" {
   try testParse("void (string s, ...) foo;", &err);
   try testParse("void () main = {}", &err);
   try testParse("void (float f, vector v) main = {}", &err);
+  try testParse(
+    \\void () foo = {
+    \\  local float a = 3.14;
+    \\  return 2 * a;
+    \\}
+    , &err);
 }
