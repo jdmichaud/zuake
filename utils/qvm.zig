@@ -81,7 +81,7 @@ const Entity = packed struct {
 };
 
 const Builtins = struct {
-  var random = std.rand.DefaultPrng.init(0);
+  var random = std.Random.DefaultPrng.init(0);
 
   const Angles = enum(u8) {
     // up / down
