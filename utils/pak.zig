@@ -40,7 +40,7 @@ pub fn loadPak(allocator: std.mem.Allocator, buffer: []const u8) ![]*align(1) co
   }
 
   var entries: []*align(1) const EntryHeader =
-    try allocator.alloc(*const EntryHeader, pakHeader.size / @sizeOf(EntryHeader));
+    try allocator.alloc(*align(1) const EntryHeader, pakHeader.size / @sizeOf(EntryHeader));
   const nbEntries = pakHeader.size / @sizeOf(EntryHeader);
   var i: u32 = 0;
   while (i < nbEntries) {
