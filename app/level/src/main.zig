@@ -1,4 +1,7 @@
-// clear && zig build -freference-trace && echo "ready" && zig-out/bin/level ../../data/quake106/id1/pak0.pak "maps/start.bsp"
+// Debug:
+// clear && zig build run -freference-trace -- ../../data/quake106/id1/pak0.pak "maps/start.bsp"
+// ReleaseFast:
+// clear && zig build run -Doptimize=ReleaseFast -freference-trace -- ../../data/quake106/id1/pak0.pak "maps/start.bsp"
 const std = @import("std");
 
 const ioAdapter = @import("io-adapter.zig");
