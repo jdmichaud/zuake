@@ -638,6 +638,7 @@ const Ast = struct {
     float_literal,
     string_literal,
     vector_literal,
+    identifier,
   };
 
   const StringLiteral = struct {
@@ -685,10 +686,13 @@ const Ast = struct {
         .string_literal => |s| {
           written += (try std.fmt.bufPrint(string[written..], "{s}", .{ s.value })).len;
         },
-        .vector_literal => |s| {
+        .vector_literal => |v| {
           written += (try std.fmt.bufPrint(string[written..], "'{d} {d} {d}'", .{
-            s.value[0], s.value[1], s.value[2],
+            v.value[0], v.value[1], v.value[2],
           })).len;
+        },
+        .identifier => |i| {
+          written += (try std.fmt.bufPrint(string[written..], "{s}", .{ i.name })).len;
         },
       }
       return written;
@@ -1062,7 +1066,7 @@ const Parser = struct {
       Token.Tag.identifier => {
         const name = self.tokenizer.buffer[token.start..token.end + 1];
         return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-          .float_literal = Ast.Identifier{ .name = name } },
+          .identifier = Ast.Identifier{ .name = name } },
         });
       },
       else => return makeError(ParseError.EmptySource, getLocation(self.tokenizer.buffer, token.start), err,
@@ -1189,7 +1193,6 @@ const Parser = struct {
       },
       .kw_return => {
         index = try self.parseExpression(err);
-        std.log.warn("next {}", .{ try self.tokenizer.peek(err) });
         const scToken = try self.tokenizer.next(err);
         try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
@@ -1407,6 +1410,8 @@ fn testParse(source: [:0]const u8, err: *GenericError) !void {
 }
 
 test "parser test" {
+  std.testing.log_level = .debug;
+
   var err = GenericError{};
   try testParse("float f = 3.14;", &err);
   try testParse("float f;", &err);
@@ -1422,7 +1427,7 @@ test "parser test" {
   try testParse(
     \\void () foo = {
     \\  local float a = 3.14;
-    \\  return 2 * a;
+    \\  return 2 + a;
     \\}
     , &err);
 }
