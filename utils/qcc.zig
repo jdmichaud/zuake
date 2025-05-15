@@ -16,6 +16,11 @@ const ParseError = error {
   NotAVector,
   NotAType,
   NodeListOutOfBound,
+  UnexpectedCharacter,
+  UnknownOperator,
+  NodeOutOfCapacity,
+  InvalidCharacter,
+  MissingMatchingParenthesis,
 };
 
 fn makeError(errcode: ParseError, location: ?Location, err: *GenericError, comptime format: []const u8,
@@ -27,6 +32,16 @@ fn makeError(errcode: ParseError, location: ?Location, err: *GenericError, compt
     _ = try std.fmt.bufPrint(&err.message, "error: " ++ format, args);
   }
   return errcode;
+}
+
+fn indentPrint(buf: []u8, indent: usize, comptime fmt: []const u8, args: anytype) !usize {
+  var written: usize = 0;
+  for (0..indent) |_| {
+    _ = try std.fmt.bufPrint(buf[written..], " ", .{});
+    written += 1;
+  }
+  written += (try std.fmt.bufPrint(buf[written..], fmt, args)).len;
+  return written;
 }
 
 pub const Token = struct {
@@ -53,6 +68,8 @@ pub const Token = struct {
     not,
     plus,
     minus,
+    mul,
+    modulo,
     elipsis,
     comment,
     quote,
@@ -89,6 +106,12 @@ pub const Location = struct {
 pub const GenericError = struct {
   message: [255:0]u8 = [_:0]u8{ 0 } ** 255,
   location: Location = .{ .column = 0, .row = 0 },
+
+  fn prettyPrint(self: @This(), buf: []u8) !usize {
+    return (try std.fmt.bufPrint(buf, "{}:{}: {s}", .{
+      self.location.row, self.location.column, self.message,
+    })).len;
+  }
 };
 
 pub fn getLocation(buffer: []const u8, index: usize) Location {
@@ -109,6 +132,8 @@ pub const Tokenizer = struct {
 
   buffer: [:0]const u8,
   index: usize,
+  // Used to cache peek result
+  next_token: ?Token = null,
 
   const State = enum {
     start,
@@ -128,12 +153,28 @@ pub const Tokenizer = struct {
   }
 
   pub fn next(self: *Self, err: *GenericError) !Token {
-    const token = try self.peek(err);
-    self.index = token.end + 1;
-    return token;
+    if (self.next_token) |token| {
+      self.next_token = null;
+      self.index = token.end + 1;
+      return token;
+    } else {
+      const token = try self.get_next_token(err);
+      self.index = token.end + 1;
+      return token;
+    }
   }
 
-  pub fn peek(self: *Self, err: *GenericError) !Token {
+  pub fn peek(self: *Self, err: *GenericError) ParseError!Token {
+    if (self.next_token) |token| {
+      return token;
+    } else {
+      self.next_token = try self.get_next_token(err);
+      return self.next_token.?;
+    }
+  }
+
+  // Get the next token but does not advance the index position
+  fn get_next_token(self: *Self, err: *GenericError) ParseError!Token {
     var state = State.start;
     var result = Token {
       .tag = .eof,
@@ -211,6 +252,18 @@ pub const Tokenizer = struct {
           },
           '-' => {
             result.tag = .minus;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
+          '*' => {
+            result.tag = .mul;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
+          '%' => {
+            result.tag = .modulo;
             result.start = index;
             result.end = index;
             return result;
@@ -413,6 +466,17 @@ pub const Tokenizer = struct {
 };
 
 const Ast = struct {
+  const PrintError = error {
+    NoSpaceLeft,
+    EmptySource,
+    UnexpectedInput,
+    NotAVectorMissingLeadingQuote,
+    NotAVectorMissingClosingQuote,
+    NotAVector,
+    NotAType,
+    NodeListOutOfBound,
+  };
+
   const Precedence = enum(i8) {
     ASSIGNMENT  = -2,
     CONDITIONAL = -1,
@@ -558,13 +622,12 @@ const Ast = struct {
     do_while_statement,
   };
 
-  const Statement = union {
-    var_decl: VarDecl,
-    return_statement: Expression,
-    if_statement: IfStatement,
-    while_statement: WhileStatement,
-    do_while_statement: WhileStatement,
-    expression: Expression,
+  const Statement = union(StatementType) {
+    var_decl: Node.Index,
+    return_statement: Node.Index,
+    if_statement: Node.Index,
+    while_statement: Node.Index,
+    do_while_statement: Node.Index,
 
     const Self = @This();
     pub fn prettyPrint(self: Self, string: []u8) !usize {
@@ -582,33 +645,6 @@ const Ast = struct {
   const Body = union(BodyType) {
     statement_list: NodeList,
     builtin_immediate: u16,
-
-    const Self = @This();
-    pub fn prettyPrint(self: Self, nodes: []Node, string: []u8) ParseError!usize {
-      switch (self) {
-        .statement_list => |list| {
-          if (list.len() == 1) {
-            return (try list.get(0)).prettyPrint(nodes, string);
-          } else {
-            var written: usize = 0;
-            written += (try std.fmt.bufPrint(string[written..], "{{", .{})).len;
-            if (list.len() > 0) {
-              written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
-            }
-            var statementIt = list.iter();
-            while (statementIt.next()) |statement| {
-              written += try statement.prettyPrint(nodes, string[written..]);
-              written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
-            }
-            written += (try std.fmt.bufPrint(string[written..], "}}", .{})).len;
-            return written;
-          }
-        },
-        .builtin_immediate => |index| {
-          return (try std.fmt.bufPrint(string, "#{}", .{ index })).len;
-        },
-      }
-    }
   };
 
   const FnDecl = struct {
@@ -632,13 +668,6 @@ const Ast = struct {
 
   const FloatLiteral = struct {
     value: f32,
-  };
-
-  const ExpressionType = enum {
-    float_literal,
-    string_literal,
-    vector_literal,
-    identifier,
   };
 
   const StringLiteral = struct {
@@ -671,15 +700,96 @@ const Ast = struct {
     name: []const u8,
   };
 
+  const Operator = enum {
+    plus,
+    minus,
+    mul,
+    div,
+    modulo,
+
+    fn fromToken(t: Token) !Operator {
+      return switch (t.tag) {
+        .plus => .plus,
+        .minus => .minus,
+        .mul => .mul,
+        .slash => .div,
+        .modulo => .modulo,
+        else => error.UnknownOperator,
+      };
+    }
+
+    pub fn toChar(o: Operator) u8 {
+      return switch (o) {
+        .plus => '+',
+        .minus => '-',
+        .mul => '*',
+        .div => '/',
+        .modulo => '%',
+      };
+    }
+  };
+
+  const BinaryOp = struct {
+    operator: Operator,
+    lhs: Node.Index,
+    rhs: Node.Index,
+  };
+
+  const UnaryOp = struct {
+    operator: Operator,
+    operand: Node.Index,
+  };
+
+  const FnCall = struct {
+    name: []const u8,
+    argument_list: NodeList,
+  };
+
+  const ExpressionType = enum {
+    binary_op,
+    unary_op,
+    fn_call,
+    float_literal,
+    string_literal,
+    vector_literal,
+    identifier,
+    parenthesised_expression,
+  };
+
   const Expression = union(ExpressionType) {
+    binary_op: BinaryOp,
+    unary_op: UnaryOp,
+    fn_call: FnCall,
     float_literal: FloatLiteral,
     string_literal: StringLiteral,
     vector_literal: VectorLiteral,
     identifier: Identifier,
+    parenthesised_expression: Node.Index, // *?Expression
 
-    pub fn prettyPrint(self: @This(), string: []u8) !usize {
+    pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
       var written: usize = 0;
       switch (self) {
+        .unary_op => |u| {
+          written += (try std.fmt.bufPrint(string[written..], "{c}", .{ Operator.toChar(u.operator) })).len;
+          written += try nodes[u.operand].prettyPrint(nodes, string[written..]);
+        },
+        .binary_op => |b| {
+          written += try nodes[b.lhs].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], " {c} ", .{ Operator.toChar(b.operator) })).len;
+          written += try nodes[b.rhs].prettyPrint(nodes, string[written..]);
+        },
+        .fn_call => |fc| {
+          written += (try std.fmt.bufPrint(string[written..], "{s}(", .{ fc.name })).len;
+          var paramIt = fc.argument_list.iter();
+          var i: usize = 0;
+          while (paramIt.next()) |param| : ({ i += 1; }) {
+            written += try param.prettyPrint(nodes, string[written..]);
+            if (i < fc.argument_list.len() - 1) {
+              written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
+            }
+          }
+          written += (try std.fmt.bufPrint(string[written..], ")", .{})).len;
+        },
         .float_literal => |f| {
           written += (try std.fmt.bufPrint(string[written..], "{d}", .{ f.value })).len;
         },
@@ -694,6 +804,11 @@ const Ast = struct {
         .identifier => |i| {
           written += (try std.fmt.bufPrint(string[written..], "{s}", .{ i.name })).len;
         },
+        .parenthesised_expression => |e| {
+          written += (try std.fmt.bufPrint(string[written..], "(", .{})).len;
+          written += try nodes[e].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], ")", .{})).len;
+        }
       }
       return written;
     }
@@ -742,10 +857,87 @@ const Ast = struct {
       return nodes[index];
     }
 
-    pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) !usize {
+    pub fn debugPrint(self: @This(), nodes: []Node, string: []u8, indent: usize) PrintError!usize {
       var written: usize = 0;
       switch (self.payload) {
         .var_decl => |d| {
+          written += try indentPrint(string[written..], indent, "VAR_DECL {s}\n", .{ d.name });
+          var typestr: [255]u8 = undefined;
+          const n = try d.type.prettyPrint(&typestr);
+          written += try indentPrint(string[written..], indent, "  type {s}\n", .{ typestr[0..n] });
+          written += try indentPrint(string[written..], indent, "  local {}\n", .{ d.local });
+          written += try indentPrint(string[written..], indent, "  value {}\n", .{ d.local });
+        },
+        .fn_decl => |d| {
+          written += try indentPrint(string[written..], indent, "FN_DECL {s}\n", .{ d.name });
+          written += try indentPrint(string[written..], indent, "  return type {}\n", .{ d.return_type });
+          written += try indentPrint(string[written..], indent, "  parameters:\n", .{});
+          var paramIt = d.parameter_list.iter();
+          while (paramIt.next()) |param| {
+            written += try param.debugPrint(nodes, string[written..], indent + 4);
+          }
+          written += try indentPrint(string[written..], indent, "  body ", .{});
+          if (getNode(nodes, d.body)) |body| {
+            written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+            written += try body.debugPrint(nodes, string[written..], indent + 4);
+            written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+          } else {
+            written += (try std.fmt.bufPrint(string[written..], " {{}}\n", .{})).len;
+          }
+        },
+        .field_decl => |d| {
+          written += try indentPrint(string[written..], indent, "FIELD_DECL {s}\n", .{ d.name });
+          var typestr: [255]u8 = undefined;
+          const n = try d.type.prettyPrint(&typestr);
+          written += try indentPrint(string[written..], indent, "  type {s}\n", .{ typestr[0..n] });
+        },
+        .builtin_decl => |d| {
+          written += try indentPrint(string[written..], indent, "BUILTIN_DECL {s}\n", .{ d.name });
+        },
+        .expression => |_| {
+          written += try indentPrint(string[written..], indent, "EXPRESSION\n", .{});
+        },
+        .program => |p| {
+          var it = p.declarations.iter();
+          while (it.next()) |declaration| {
+            written += try declaration.debugPrint(nodes, string[written..], indent);
+          }
+        },
+        .param_decl => |p| {
+          var paramstr: [255]u8 = undefined;
+          const n = try p.prettyPrint(&paramstr);
+          written += try indentPrint(string[written..], indent, "PARAM_DECL {s}\n", .{ paramstr[0..n] });
+        },
+        .statement => unreachable,
+        .body => |_| {
+          written += try indentPrint(string[written..], indent, "BODY\n", .{});
+        },
+        // .scope => |s| {
+        //   written += (try std.fmt.bufPrint(string[written..], "{{\n", .{})).len;
+        //   for (s.instructions) |param| {
+        //     // TODO: indentation here
+        //     written += try param.prettyPrint(string[written..]);
+        //     written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+        //   }
+        //   written += (try std.fmt.bufPrint(string[written..], "}}\n", .{})).len;
+        // },
+      }
+      return written;
+    }
+
+    pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
+      return try self.prettyPrintIndent(nodes, string, 0);
+    }
+
+    pub fn prettyPrintIndent(self: @This(), nodes: []Node, string: []u8, indent: usize) PrintError!usize {
+      var written: usize = 0;
+      switch (self.payload) {
+        .var_decl => |d| {
+          if (d.local) {
+            written += try indentPrint(string[written..], indent, "local ", .{});
+          } else {
+            written += try indentPrint(string[written..], indent, "", .{});
+          }
           written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
           if (getNode(nodes, d.value)) |value| {
@@ -755,12 +947,13 @@ const Ast = struct {
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .fn_decl => |d| {
+          written += try indentPrint(string[written..], indent, "", .{});
           written += try d.return_type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
           var paramIt = d.parameter_list.iter();
           var i: usize = 0;
           while (paramIt.next()) |param| : (i += 1) {
-            written += try param.prettyPrint(nodes, string[written..]);
+            written += try param.prettyPrintIndent(nodes, string[written..], indent);
             if (i < d.parameter_list.len() - 1) {
               written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
             }
@@ -768,24 +961,25 @@ const Ast = struct {
           written += (try std.fmt.bufPrint(string[written..], ") {s}", .{ d.name })).len;
           if (getNode(nodes, d.body)) |body| {
             written += (try std.fmt.bufPrint(string[written..], " = ", .{})).len;
-            written += try body.prettyPrint(nodes, string[written..]);
+            written += try body.prettyPrintIndent(nodes, string[written..], indent);
           } else {
             written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
           }
         },
         .field_decl => |d| {
-          written += (try std.fmt.bufPrint(string[written..], ".", .{})).len;
+          written += try indentPrint(string[written..], indent, ".", .{});
           written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .builtin_decl => |d| {
+          written += try indentPrint(string[written..], indent, "", .{});
           written += try d.return_type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
           var paramIt = d.parameter_list.iter();
           var i: usize = 0;
           while (paramIt.next()) |param| : (i += 1) {
-            written += try param.prettyPrint(nodes, string[written..]);
+            written += try param.prettyPrintIndent(nodes, string[written..], indent);
             if (i < d.parameter_list.len() - 1) {
               written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
             }
@@ -793,20 +987,61 @@ const Ast = struct {
           written += (try std.fmt.bufPrint(string[written..], ") {s} = #{};", .{ d.name, d.index })).len;
         },
         .expression => |expression| {
-          written += try expression.prettyPrint(string[written..]);
+          written += try indentPrint(string[written..], indent, "", .{});
+          written += try expression.prettyPrint(nodes, string[written..]);
         },
         .program => |p| {
           var it = p.declarations.iter();
           while (it.next()) |declaration| {
-            written += try declaration.prettyPrint(nodes, string[written..]);
+            written += try declaration.prettyPrintIndent(nodes, string[written..], indent);
           }
         },
         .param_decl => |p| {
           written += try p.prettyPrint(string[written..]);
         },
-        .statement => unreachable,
+        .statement => |s| {
+          written += try indentPrint(string[written..], indent, "", .{});
+          switch (s) {
+            .var_decl => |v| {
+              written += try nodes[v].prettyPrintIndent(nodes, string[written..], indent);
+              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+            },
+            .return_statement => |expr| {
+              written += (try std.fmt.bufPrint(string[written..], "return ", .{})).len;
+              written += try nodes[expr].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+            },
+            .if_statement => unreachable,
+            .while_statement => unreachable,
+            .do_while_statement => unreachable,
+          }
+        },
         .body => |b| {
-          written += try b.prettyPrint(nodes, string[written..]);
+          switch (b) {
+            .statement_list => |list| {
+              if (list.len() == 1) {
+                const l = try list.get(0);
+                return try l.prettyPrint(nodes, string);
+              } else {
+                written += (try std.fmt.bufPrint(string[written..], "{{", .{})).len;
+                if (list.len() > 0) {
+                  written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+                }
+                var statementIt = list.iter();
+                while (statementIt.next()) |statement| {
+                  written += try statement.prettyPrintIndent(nodes, string[written..], indent + 2);
+                  written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+                }
+                written += (try std.fmt.bufPrint(string[written..], "}}", .{})).len;
+                return written;
+              }
+            },
+            .builtin_immediate => |index| {
+              return (try std.fmt.bufPrint(string, "#{}", .{ index })).len;
+            },
+          }
+
+
         },
         // .scope => |s| {
         //   written += (try std.fmt.bufPrint(string[written..], "{{\n", .{})).len;
@@ -822,11 +1057,15 @@ const Ast = struct {
     }
   };
 
+  // Represent a virtual list in the Node array.
+  // Simplify appending and get an element from an Index.
   const NodeList = struct {
     const Self = @This();
     head: Node.Index,
     nodes: []Node,
 
+    // Initializing the list with a 0 index creates a new list.
+    // The next element to be appended becomes the head of the list.
     fn init(head: Node.Index, nodes: []Node) Self {
       return Self{
         .head = head,
@@ -1001,8 +1240,8 @@ const Parser = struct {
             }});
           },
           else => |t| return makeError(ParseError.EmptySource,
-            getLocation(self.tokenizer.buffer, identifierToken.start), err,
-            "Unexpected token {}", .{ t }),
+            getLocation(self.tokenizer.buffer, scToken.start), err,
+            "Unexpected token {}, expecting a ';'", .{ t }),
         }
       },
       Token.Tag.semicolon => {
@@ -1038,7 +1277,7 @@ const Parser = struct {
     }});
   }
 
-  fn parseExpression(self: *Self, err: *GenericError) !Ast.Node.Index {
+  fn parsePrimary(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
     const token = try self.tokenizer.next(err);
     switch (token.tag) {
       Token.Tag.float_literal => {
@@ -1065,13 +1304,114 @@ const Parser = struct {
       },
       Token.Tag.identifier => {
         const name = self.tokenizer.buffer[token.start..token.end + 1];
-        return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-          .identifier = Ast.Identifier{ .name = name } },
-        });
+
+        const next = try self.tokenizer.peek(err);
+        // Function call
+        if (next.tag == Token.Tag.l_paren) {
+          // pop l_paren
+          _ = try self.tokenizer.next(err);
+          // Create a temporary
+          var fnCall = Ast.FnCall{
+            .name = name,
+            .argument_list = Ast.NodeList.init(0, self.nodes),
+          };
+          var r_paren = try self.tokenizer.peek(err);
+          // Parse the parameter declaration until we reach a r_paren
+          while (r_paren.tag != Token.Tag.r_paren) {
+            fnCall.argument_list.appendNode(try self.parseExpression(err));
+            r_paren = try self.tokenizer.peek(err);
+            // Ignore the comma but expect it
+            if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
+          }
+          // Discard r_paren
+          _ = try self.tokenizer.next(err);
+          return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+            .fn_call = fnCall,
+          }});
+        } else {
+          // Variables
+          return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+            .identifier = Ast.Identifier{ .name = name } },
+          });
+        }
       },
-      else => return makeError(ParseError.EmptySource, getLocation(self.tokenizer.buffer, token.start), err,
-       "unexpected token {}", .{ token }),
+      // Parenthesized expression
+      Token.Tag.l_paren => {
+        const expression = try self.parseExpression(err);
+        // Check that the parenthesized expression ends with a matching parenthesis
+        if ((try self.tokenizer.peek(err)).tag != Token.Tag.r_paren) {
+          return makeError(ParseError.EmptySource, getLocation(self.tokenizer.buffer, token.start), err,
+            "unexpected token {}", .{ token });
+        }
+        _ = try self.tokenizer.next(err);
+
+        return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+          .parenthesised_expression = expression,
+        }});
+      },
+      else => return makeError(ParseError.MissingMatchingParenthesis,
+        getLocation(self.tokenizer.buffer, token.start), err, "missing mathing parenthesis", .{}),
     }
+  }
+
+  fn parseFactor(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
+    const next = try self.tokenizer.peek(err);
+    if (next.tag == Token.Tag.minus) {
+      _ = try self.tokenizer.next(err);
+
+      const operand = try self.parseExpression(err);
+      return try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .unary_op = Ast.UnaryOp {
+        .operator = Ast.Operator.minus,
+        .operand = operand,
+      }}});
+    }
+
+    return try parsePrimary(self, err);
+  }
+
+  fn parseTerm(self: *Self, err: *GenericError) !Ast.Node.Index {
+    var lhs = try self.parseFactor(err);
+
+    var peek_token = try self.tokenizer.peek(err);
+    while (peek_token.tag == Token.Tag.mul or peek_token.tag == Token.Tag.slash
+      or peek_token.tag == Token.Tag.modulo) {
+      _ = try self.tokenizer.next(err);
+
+      const rhs = try self.parseFactor(err);
+      lhs = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .binary_op = Ast.BinaryOp {
+        .operator = try Ast.Operator.fromToken(peek_token),
+        .lhs = lhs,
+        .rhs = rhs,
+      }}});
+      peek_token = try self.tokenizer.peek(err);
+    }
+
+    return lhs;
+  }
+
+  // Forward Declarations for Parsing Functions (Grammar Hierarchy)
+  // expression ::= term ( ( '+' | '-' ) term )*
+  // term       ::= factor ( ( '*' | '/' | '%' ) factor )*
+  // factor     ::= '-' factor | power      // Unary minus applied here
+  // power      ::= primary ( '^' power )?   // Exponentiation (right-assoc) applied here
+  // primary    ::= NUMBER | IDENTIFIER | IDENTIFIER '(' [expression] ')' | '(' expression ')'
+  fn parseExpression(self: *Self, err: *GenericError) !Ast.Node.Index {
+    var lhs = try self.parseTerm(err);
+
+    var peek_token = try self.tokenizer.peek(err);
+    while (peek_token.tag == Token.Tag.plus or peek_token.tag == Token.Tag.minus) {
+      _ = try self.tokenizer.next(err);
+
+      const rhs = try self.parseTerm(err);
+      lhs = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .binary_op = Ast.BinaryOp {
+        .operator = try Ast.Operator.fromToken(peek_token),
+        .lhs = lhs,
+        .rhs = rhs,
+      }}});
+      peek_token = try self.tokenizer.peek(err);
+    }
+
+    return lhs;
   }
 
   fn parseFunctionDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node.Index {
@@ -1091,9 +1431,8 @@ const Parser = struct {
     };
     // Peek at the next token
     var r_paren = try self.tokenizer.peek(err);
-    var i: u16 = 0;
     // Parse the parameter declaration until we reach a r_paren
-    while (r_paren.tag != Token.Tag.r_paren) : (i += 1) {
+    while (r_paren.tag != Token.Tag.r_paren) {
       fnDecl.parameter_list.appendNode(try self.parseParamDeclaration(err));
       r_paren = try self.tokenizer.peek(err);
       // Ignore the comma but expect it
@@ -1192,7 +1531,10 @@ const Parser = struct {
         index = try self.parseVariableDefinition(try self.tokenizer.next(err), true, err);
       },
       .kw_return => {
-        index = try self.parseExpression(err);
+        const expression = try self.parseExpression(err);
+        index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+          .return_statement = expression,
+        }});
         const scToken = try self.tokenizer.next(err);
         try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
@@ -1402,15 +1744,24 @@ fn expectEqualString(lhs: []const u8, rhs: []const u8) !void {
 
 fn testParse(source: [:0]const u8, err: *GenericError) !void {
   var ast: [256]Ast.Node = undefined;
-  var parser = Parser.init(source, ast[0..]);
-  try parser.parse(err);
   var output: [4096:0]u8 = .{ 0 } ** 4096;
+  var parser = Parser.init(source, ast[0..]);
+  parser.parse(err) catch |e| {
+    const n = try err.prettyPrint(&output);
+    std.log.debug("{s}", .{ output[0..n] });
+    return e;
+  };
   _ = try ast[0].prettyPrint(&ast, &output);
+  if (std.testing.log_level == .debug) {
+    var debug_str: [4096:0]u8 = .{ 0 } ** 4096;
+    const debug_written = try ast[0].debugPrint(&ast, &debug_str, 0);
+    std.log.debug("ast:\n{s}", .{ debug_str[0..debug_written] });
+  }
   try expectEqualString(source, std.mem.span(@as([*:0]const u8, @ptrCast(&output))));
 }
 
 test "parser test" {
-  std.testing.log_level = .debug;
+  // std.testing.log_level = .debug;
 
   var err = GenericError{};
   try testParse("float f = 3.14;", &err);
@@ -1430,4 +1781,30 @@ test "parser test" {
     \\  return 2 + a;
     \\}
     , &err);
+}
+
+test "expression parser test" {
+  // std.testing.log_level = .debug;
+
+  var err = GenericError{};
+  try testParse("float f = 12;", &err);
+  try testParse("float f = 12 + 7;", &err);
+  try testParse("float f = 12 - 7;", &err);
+  try testParse("float f = 12 + 7 - 3;", &err);
+  try testParse("float f = 12 * 3;", &err);
+  try testParse("float f = 12 / 3;", &err);
+  try testParse("float f = 12 % 3;", &err);
+  try testParse("float f = 12 % 3 * 4;", &err);
+  try testParse("float f = 12 * 3 + 4;", &err);
+  try testParse("float f = 12 + 3 * 4;", &err);
+  try testParse("float f = -12;", &err);
+  try testParse("float f = -12 % -4;", &err);
+  try testParse("float f = foo();", &err);
+  try testParse("float f = foo(1);", &err);
+  try testParse("float f = foo(1, 2);", &err);
+  try testParse("float f = 1 + foo(1, 2);", &err);
+  try testParse("float f = foo(1, 2) + 1;", &err);
+  try testParse("float f = foo(bar(9 % 4), 2 * 3) + 1;", &err);
+  try testParse("float f = (3 + 2) * 2;", &err);
+  try testParse("float f = 3.14 * (radius * radius) - max(x, -y, 10);", &err);
 }
