@@ -70,6 +70,8 @@ pub const Token = struct {
     minus,
     mul,
     modulo,
+    tilde,
+    caret,
     elipsis,
     comment,
     quote,
@@ -173,6 +175,32 @@ pub const Tokenizer = struct {
     }
   }
 
+  // Peek several token in advance
+  // used for update expressions (i++, j--)
+  // FIXME: This function is possible because we can rewind the index which is
+  // only possible because we work on an array and not on a file.
+  // Ideally we would need a ring buffer of token with an index on which the
+  // next token is.
+  pub fn peekAt(self: *Self, err: *GenericError, comptime tokenIndex: usize) ParseError!Token {
+    if (tokenIndex == 0) @compileError("peekAt index start at 1");
+
+    if (tokenIndex == 1) {
+      return self.peek(err);
+    }
+
+    var tokenIndex2 = tokenIndex;
+    const backup = self.index;
+    var token: Token = undefined;
+    while (tokenIndex2 > 0) : ({ tokenIndex2 -= 1; }) {
+      token = try self.get_next_token(err);
+      self.index = token.end + 1;
+    }
+
+    // rewind
+    self.index = backup;
+    return token;
+  }
+
   // Get the next token but does not advance the index position
   fn get_next_token(self: *Self, err: *GenericError) ParseError!Token {
     var state = State.start;
@@ -209,6 +237,7 @@ pub const Tokenizer = struct {
             result.tag = .l_bracket;
             result.start = index;
             result.end = index;
+
             return result;
           },
           ']' => {
@@ -264,6 +293,18 @@ pub const Tokenizer = struct {
           },
           '%' => {
             result.tag = .modulo;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
+          '~' => {
+            result.tag = .tilde;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
+          '^' => {
+            result.tag = .caret;
             result.start = index;
             result.end = index;
             return result;
@@ -706,6 +747,8 @@ const Ast = struct {
     mul,
     div,
     modulo,
+    not,
+    complement,
 
     fn fromToken(t: Token) !Operator {
       return switch (t.tag) {
@@ -714,6 +757,8 @@ const Ast = struct {
         .mul => .mul,
         .slash => .div,
         .modulo => .modulo,
+        .not => .not,
+        .tilde => .complement,
         else => error.UnknownOperator,
       };
     }
@@ -725,6 +770,8 @@ const Ast = struct {
         .mul => '*',
         .div => '/',
         .modulo => '%',
+        .not => '!',
+        .complement => '~',
       };
     }
   };
@@ -745,6 +792,16 @@ const Ast = struct {
     argument_list: NodeList,
   };
 
+  const Subscript = struct {
+    name: []const u8,
+    index_expression: Node.Index,
+  };
+
+  const UpdateExpression = struct {
+    expression: Node.Index,
+    operator: Operator,
+  };
+
   const ExpressionType = enum {
     binary_op,
     unary_op,
@@ -753,7 +810,9 @@ const Ast = struct {
     string_literal,
     vector_literal,
     identifier,
-    parenthesised_expression,
+    parenthesized_expression,
+    subscript_expression,
+    update_expression,
   };
 
   const Expression = union(ExpressionType) {
@@ -764,7 +823,9 @@ const Ast = struct {
     string_literal: StringLiteral,
     vector_literal: VectorLiteral,
     identifier: Identifier,
-    parenthesised_expression: Node.Index, // *?Expression
+    parenthesized_expression: Node.Index, // *?Expression
+    subscript_expression: Subscript,
+    update_expression: UpdateExpression,
 
     pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
       var written: usize = 0;
@@ -804,11 +865,25 @@ const Ast = struct {
         .identifier => |i| {
           written += (try std.fmt.bufPrint(string[written..], "{s}", .{ i.name })).len;
         },
-        .parenthesised_expression => |e| {
+        .parenthesized_expression => |e| {
           written += (try std.fmt.bufPrint(string[written..], "(", .{})).len;
           written += try nodes[e].prettyPrint(nodes, string[written..]);
           written += (try std.fmt.bufPrint(string[written..], ")", .{})).len;
-        }
+        },
+        .subscript_expression => |e| {
+          written += (try std.fmt.bufPrint(string[written..], "{s}", .{ e.name })).len;
+          written += (try std.fmt.bufPrint(string[written..], "[", .{})).len;
+          written += try nodes[e.index_expression].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], "]", .{})).len;
+        },
+        .update_expression => |e| {
+          written += try nodes[e.expression].prettyPrint(nodes, string[written..]);
+          written += switch (e.operator) {
+            Ast.Operator.plus => (try std.fmt.bufPrint(string[written..], "++", .{})).len,
+            Ast.Operator.minus => (try std.fmt.bufPrint(string[written..], "--", .{})).len,
+            else => @panic("internal error: update expression with an unknown operator"),
+          };
+        },
       }
       return written;
     }
@@ -894,8 +969,22 @@ const Ast = struct {
         .builtin_decl => |d| {
           written += try indentPrint(string[written..], indent, "BUILTIN_DECL {s}\n", .{ d.name });
         },
-        .expression => |_| {
-          written += try indentPrint(string[written..], indent, "EXPRESSION\n", .{});
+        .expression => |e| {
+          switch (e) {
+            .update_expression => |ue| {
+              written += try indentPrint(string[written..], indent, "UPDATE_EXPRESSION\n", .{});
+              written += try indentPrint(string[written..], indent, "  operator: {c}\n", .{ Ast.Operator.toChar(ue.operator) });
+              written += try indentPrint(string[written..], indent, "  subexpression:\n", .{});
+              written += try nodes[ue.expression].debugPrint(nodes, string[written..], indent + 4);
+            },
+            .subscript_expression => |se| {
+              written += try indentPrint(string[written..], indent, "SUBSCRIPT_EXPRESSION\n", .{});
+              written += try indentPrint(string[written..], indent, "  name {s}\n", .{ se.name });
+              written += try indentPrint(string[written..], indent, "  index:\n", .{});
+              written += try nodes[se.index_expression].debugPrint(nodes, string[written..], indent + 4);
+            },
+            else => written += try indentPrint(string[written..], indent, "EXPRESSION\n", .{}),
+          }
         },
         .program => |p| {
           var it = p.declarations.iter();
@@ -1279,6 +1368,7 @@ const Parser = struct {
 
   fn parsePrimary(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
     const token = try self.tokenizer.next(err);
+
     switch (token.tag) {
       Token.Tag.float_literal => {
         const value = try std.fmt.parseFloat(f32, self.tokenizer.buffer[token.start..token.end + 1]);
@@ -1306,33 +1396,50 @@ const Parser = struct {
         const name = self.tokenizer.buffer[token.start..token.end + 1];
 
         const next = try self.tokenizer.peek(err);
-        // Function call
-        if (next.tag == Token.Tag.l_paren) {
-          // pop l_paren
-          _ = try self.tokenizer.next(err);
-          // Create a temporary
-          var fnCall = Ast.FnCall{
-            .name = name,
-            .argument_list = Ast.NodeList.init(0, self.nodes),
-          };
-          var r_paren = try self.tokenizer.peek(err);
-          // Parse the parameter declaration until we reach a r_paren
-          while (r_paren.tag != Token.Tag.r_paren) {
-            fnCall.argument_list.appendNode(try self.parseExpression(err));
-            r_paren = try self.tokenizer.peek(err);
-            // Ignore the comma but expect it
-            if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
-          }
-          // Discard r_paren
-          _ = try self.tokenizer.next(err);
-          return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-            .fn_call = fnCall,
-          }});
-        } else {
-          // Variables
-          return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-            .identifier = Ast.Identifier{ .name = name } },
-          });
+        switch(next.tag) {
+          // Function call
+          Token.Tag.l_paren => {
+            // pop l_paren
+            _ = try self.tokenizer.next(err);
+            // Create a temporary
+            var fnCall = Ast.FnCall{
+              .name = name,
+              .argument_list = Ast.NodeList.init(0, self.nodes),
+            };
+            var r_paren = try self.tokenizer.peek(err);
+            // Parse the parameter declaration until we reach a r_paren
+            while (r_paren.tag != Token.Tag.r_paren) {
+              fnCall.argument_list.appendNode(try self.parseExpression(err));
+              r_paren = try self.tokenizer.peek(err);
+              // Ignore the comma but expect it
+              if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
+            }
+            // Discard r_paren
+            _ = try self.tokenizer.next(err);
+            return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+              .fn_call = fnCall,
+            }});
+          },
+          // Subscribt expression (array[i])
+          Token.Tag.l_bracket => {
+            // pop l_bracket
+            _ = try self.tokenizer.next(err);
+            const subscriptExpr = Ast.Subscript{
+              .name = name,
+              .index_expression = try self.parseExpression(err),
+            };
+            const r_bracket = try self.tokenizer.next(err);
+            try self.checkToken(r_bracket, Token.Tag.r_bracket, err);
+            return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+              .subscript_expression = subscriptExpr,
+            }});
+          },
+          else => {
+            // Variables
+            return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+              .identifier = Ast.Identifier{ .name = name } },
+            });
+          },
         }
       },
       // Parenthesized expression
@@ -1346,27 +1453,47 @@ const Parser = struct {
         _ = try self.tokenizer.next(err);
 
         return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-          .parenthesised_expression = expression,
+          .parenthesized_expression = expression,
         }});
       },
       else => return makeError(ParseError.MissingMatchingParenthesis,
-        getLocation(self.tokenizer.buffer, token.start), err, "missing mathing parenthesis", .{}),
+        getLocation(self.tokenizer.buffer, token.start), err, "missing matching parenthesis", .{}),
     }
   }
 
   fn parseFactor(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
     const next = try self.tokenizer.peek(err);
-    if (next.tag == Token.Tag.minus) {
+    // Unary
+    if (next.tag == Token.Tag.minus or next.tag == Token.Tag.plus or next.tag == Token.Tag.tilde
+      or next.tag == Token.Tag.not) {
       _ = try self.tokenizer.next(err);
 
       const operand = try self.parseExpression(err);
       return try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .unary_op = Ast.UnaryOp {
-        .operator = Ast.Operator.minus,
+        .operator = try Ast.Operator.fromToken(next),
         .operand = operand,
       }}});
     }
 
-    return try parsePrimary(self, err);
+    const primary = try parsePrimary(self, err);
+
+    // Update expression (i++, i--)
+    const postnext = try self.tokenizer.peek(err);
+    if (postnext.tag == Token.Tag.plus or postnext.tag == Token.Tag.minus) {
+      const postnextnext = try self.tokenizer.peekAt(err, 2);
+      if (postnext.tag == postnextnext.tag) {
+        _ = try self.tokenizer.next(err);
+        _ = try self.tokenizer.next(err);
+        return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+          .update_expression = Ast.UpdateExpression{
+            .expression = primary,
+            .operator = try Ast.Operator.fromToken(postnext),
+          },
+        }});
+      }
+    }
+
+    return primary;
   }
 
   fn parseTerm(self: *Self, err: *GenericError) !Ast.Node.Index {
@@ -1760,6 +1887,24 @@ fn testParse(source: [:0]const u8, err: *GenericError) !void {
   try expectEqualString(source, std.mem.span(@as([*:0]const u8, @ptrCast(&output))));
 }
 
+fn testExpression(source: [:0]const u8, err: *GenericError) !void {
+  var ast: [256]Ast.Node = undefined;
+  var output: [4096:0]u8 = .{ 0 } ** 4096;
+  var parser = Parser.init(source, ast[0..]);
+  const expr = parser.parseExpression(err) catch |e| {
+    const n = try err.prettyPrint(&output);
+    std.log.debug("{s}", .{ output[0..n] });
+    return e;
+  };
+  _ = try ast[expr].prettyPrint(&ast, &output);
+  if (std.testing.log_level == .debug) {
+    var debug_str: [4096:0]u8 = .{ 0 } ** 4096;
+    const debug_written = try ast[expr].debugPrint(&ast, &debug_str, 0);
+    std.log.debug("expr:\n{s}", .{ debug_str[0..debug_written] });
+  }
+  try expectEqualString(source, std.mem.span(@as([*:0]const u8, @ptrCast(&output))));
+}
+
 test "parser test" {
   // std.testing.log_level = .debug;
 
@@ -1781,30 +1926,70 @@ test "parser test" {
     \\  return 2 + a;
     \\}
     , &err);
+  // extended comment
+  // try testParse(
+  //   \\void () foo = {
+  //   \\  /* Ignore this
+  //   \\     comment */
+  //   \\  return 42;
+  //   \\}
+  //   , &err);
 }
 
 test "expression parser test" {
   // std.testing.log_level = .debug;
 
   var err = GenericError{};
-  try testParse("float f = 12;", &err);
-  try testParse("float f = 12 + 7;", &err);
-  try testParse("float f = 12 - 7;", &err);
-  try testParse("float f = 12 + 7 - 3;", &err);
-  try testParse("float f = 12 * 3;", &err);
-  try testParse("float f = 12 / 3;", &err);
-  try testParse("float f = 12 % 3;", &err);
-  try testParse("float f = 12 % 3 * 4;", &err);
-  try testParse("float f = 12 * 3 + 4;", &err);
-  try testParse("float f = 12 + 3 * 4;", &err);
-  try testParse("float f = -12;", &err);
-  try testParse("float f = -12 % -4;", &err);
-  try testParse("float f = foo();", &err);
-  try testParse("float f = foo(1);", &err);
-  try testParse("float f = foo(1, 2);", &err);
-  try testParse("float f = 1 + foo(1, 2);", &err);
-  try testParse("float f = foo(1, 2) + 1;", &err);
-  try testParse("float f = foo(bar(9 % 4), 2 * 3) + 1;", &err);
-  try testParse("float f = (3 + 2) * 2;", &err);
-  try testParse("float f = 3.14 * (radius * radius) - max(x, -y, 10);", &err);
+  try testExpression("12", &err);
+  try testExpression("12 + 7", &err);
+  try testExpression("12 - 7", &err);
+  try testExpression("12 + 7 - 3", &err);
+  try testExpression("12 * 3", &err);
+  try testExpression("12 / 3", &err);
+  try testExpression("12 % 3", &err);
+  try testExpression("12 % 3 * 4", &err);
+  try testExpression("12 * 3 + 4", &err);
+  try testExpression("12 + 3 * 4", &err);
+  try testExpression("-12", &err);
+  try testExpression("-12 % -4", &err);
+  try testExpression("foo()", &err);
+  try testExpression("foo(1)", &err);
+  try testExpression("foo(1, 2)", &err);
+  try testExpression("1 + foo(1, 2)", &err);
+  try testExpression("foo(1, 2) + 1", &err);
+  try testExpression("foo(bar(9 % 4), 2 * 3) + 1", &err);
+  try testExpression("(3 + 2) * 2", &err);
+  try testExpression("3.14 * (radius * radius) - max(x, -y, 10)", &err);
+  try testExpression("array[1]", &err);
+  try testExpression("array[1 + 2]", &err);
+  try testExpression("array[3.14 * -(!radius * radius) - ~max(x, -y, 10)]", &err);
+  // try testExpression("foo()[1]", &err);
+  try testExpression("print(\"hello\")", &err);
+  try testExpression("i++", &err);
+  try testExpression("i--", &err);
+  try testExpression("12 + i++", &err);
+  try testExpression("i-- + 12", &err);
+  try testExpression("i++ * (12 - 3)", &err);
+  try testExpression("i++ * (12 - 3)", &err);
+  try testExpression("-i++", &err);
+  try testExpression("array[x]++", &err);
+  // try testExpression("foo.bar[x+y](z).qux++", &err);
+}
+
+test "peekAt" {
+  // std.testing.log_level = .debug;
+
+  var err = GenericError{};
+  {
+    var tokenizer = Tokenizer.init(&.{ '+', '-', '%', 0 });
+    try std.testing.expectEqual(Token.Tag.minus, (try tokenizer.peekAt(&err, 2)).tag);
+    try std.testing.expectEqual(Token.Tag.modulo, (try tokenizer.peekAt(&err, 3)).tag);
+    try std.testing.expectEqual(Token.Tag.minus, (try tokenizer.peekAt(&err, 2)).tag);
+  }
+  {
+    var tokenizer = Tokenizer.init(&.{ '+', '-', '%', 0 });
+    _ = try tokenizer.peek(&err);
+    try std.testing.expectEqual(Token.Tag.minus, (try tokenizer.peekAt(&err, 2)).tag);
+    try std.testing.expectEqual(Token.Tag.modulo, (try tokenizer.peekAt(&err, 3)).tag);
+  }
 }
