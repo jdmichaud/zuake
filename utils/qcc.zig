@@ -2,6 +2,7 @@
 //
 // reference:
 // https://github.com/vkazanov/tree-sitter-quakec/blob/main/grammar.js
+// https://icculus.org/~marco/quakec/fteqcc_manual.txt
 //
 // test: clear && zig test -freference-trace qcc.zig
 const std = @import("std");
@@ -90,6 +91,7 @@ pub const Token = struct {
     string_literal,
     float_literal,
     builtin_literal,
+    frame_identifier,
 
     kw_if,
     kw_else,
@@ -141,6 +143,7 @@ pub const Tokenizer = struct {
     start,
     identifier,
     builtin_literal,
+    frame_identifier,
     float_literal,
     string_literal,
     vector_literal,
@@ -392,6 +395,11 @@ pub const Tokenizer = struct {
             result.start = index;
             index += 1;
           },
+          '$' => {
+            state = .frame_identifier;
+            result.start = index;
+            index += 1;
+          },
           'a'...'z', 'A'...'Z', '_' => {
             const i = index;
             if (self.buffer[i] == 'f' and i + "false".len < self.buffer.len and
@@ -448,6 +456,14 @@ pub const Tokenizer = struct {
         .builtin_literal => switch (self.buffer[index]) {
           '0'...'9' => {
             result.tag = .builtin_literal;
+            result.end = index;
+            index += 1;
+          },
+          else => return result,
+        },
+        .frame_identifier => switch (self.buffer[index]) {
+          'a'...'z', 'A'...'Z', '0'...'9' => {
+            result.tag = .frame_identifier;
             result.end = index;
             index += 1;
           },
@@ -797,6 +813,11 @@ const Ast = struct {
     index_expression: Node.Index,
   };
 
+  const FieldExpression = struct {
+    object: []const u8,
+    field: []const u8,
+  };
+
   const UpdateExpression = struct {
     expression: Node.Index,
     operator: Operator,
@@ -813,6 +834,8 @@ const Ast = struct {
     parenthesized_expression,
     subscript_expression,
     update_expression,
+    field_expression,
+    frame_identifier,
   };
 
   const Expression = union(ExpressionType) {
@@ -826,6 +849,8 @@ const Ast = struct {
     parenthesized_expression: Node.Index, // *?Expression
     subscript_expression: Subscript,
     update_expression: UpdateExpression,
+    field_expression: FieldExpression,
+    frame_identifier: Identifier,
 
     pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
       var written: usize = 0;
@@ -883,6 +908,12 @@ const Ast = struct {
             Ast.Operator.minus => (try std.fmt.bufPrint(string[written..], "--", .{})).len,
             else => @panic("internal error: update expression with an unknown operator"),
           };
+        },
+        .field_expression => |f| {
+          written += (try std.fmt.bufPrint(string[written..], "{s}.{s}", .{ f.object, f.field })).len;
+        },
+        .frame_identifier => |f| {
+          written += (try std.fmt.bufPrint(string[written..], "{s}", .{ f.name })).len;
         },
       }
       return written;
@@ -1394,53 +1425,10 @@ const Parser = struct {
       },
       Token.Tag.identifier => {
         const name = self.tokenizer.buffer[token.start..token.end + 1];
-
-        const next = try self.tokenizer.peek(err);
-        switch(next.tag) {
-          // Function call
-          Token.Tag.l_paren => {
-            // pop l_paren
-            _ = try self.tokenizer.next(err);
-            // Create a temporary
-            var fnCall = Ast.FnCall{
-              .name = name,
-              .argument_list = Ast.NodeList.init(0, self.nodes),
-            };
-            var r_paren = try self.tokenizer.peek(err);
-            // Parse the parameter declaration until we reach a r_paren
-            while (r_paren.tag != Token.Tag.r_paren) {
-              fnCall.argument_list.appendNode(try self.parseExpression(err));
-              r_paren = try self.tokenizer.peek(err);
-              // Ignore the comma but expect it
-              if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
-            }
-            // Discard r_paren
-            _ = try self.tokenizer.next(err);
-            return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-              .fn_call = fnCall,
-            }});
-          },
-          // Subscribt expression (array[i])
-          Token.Tag.l_bracket => {
-            // pop l_bracket
-            _ = try self.tokenizer.next(err);
-            const subscriptExpr = Ast.Subscript{
-              .name = name,
-              .index_expression = try self.parseExpression(err),
-            };
-            const r_bracket = try self.tokenizer.next(err);
-            try self.checkToken(r_bracket, Token.Tag.r_bracket, err);
-            return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-              .subscript_expression = subscriptExpr,
-            }});
-          },
-          else => {
-            // Variables
-            return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-              .identifier = Ast.Identifier{ .name = name } },
-            });
-          },
-        }
+        // Variables
+        return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+          .identifier = Ast.Identifier{ .name = name } },
+        });
       },
       // Parenthesized expression
       Token.Tag.l_paren => {
@@ -1456,9 +1444,93 @@ const Parser = struct {
           .parenthesized_expression = expression,
         }});
       },
+      // Frame identifier
+      Token.Tag.frame_identifier => {
+        _ = try self.tokenizer.next(err);
+        const name = self.tokenizer.buffer[token.start..token.end + 1];
+        // Variables
+        return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+          .frame_identifier = Ast.Identifier{ .name = name } },
+        });
+      },
       else => return makeError(ParseError.MissingMatchingParenthesis,
         getLocation(self.tokenizer.buffer, token.start), err, "missing matching parenthesis", .{}),
     }
+  }
+
+  fn getIndentifierName(self: Self, err: *GenericError, node: Ast.Node, token: Token) ![]const u8 {
+    return switch (node.payload) {
+      .expression => |e| switch (e) {
+        .identifier => |i| i.name,
+        else => makeError(ParseError.MissingMatchingParenthesis,
+          getLocation(self.tokenizer.buffer, token.start), err, "expecting an identifier", .{}),
+      },
+      else => makeError(ParseError.MissingMatchingParenthesis,
+        getLocation(self.tokenizer.buffer, token.start), err, "expecting an identifier", .{}),
+    };
+  }
+
+  fn parsePostfix(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
+    var primary = try self.parsePrimary(err);
+
+    while (true) {
+      const next = try self.tokenizer.peek(err);
+      switch (next.tag) {
+        // Function call
+        Token.Tag.l_paren => {
+          // pop l_paren
+          _ = try self.tokenizer.next(err);
+          // Check we got an identifier back
+          var fnCall = Ast.FnCall{
+            // For now we suppose that we cannot call an expression, only an identifier
+            .name = try self.getIndentifierName(err, self.nodes[primary], next),
+            .argument_list = Ast.NodeList.init(0, self.nodes),
+          };
+          var r_paren = try self.tokenizer.peek(err);
+          // Parse the parameter declaration until we reach a r_paren
+          while (r_paren.tag != Token.Tag.r_paren) {
+            fnCall.argument_list.appendNode(try self.parseExpression(err));
+            r_paren = try self.tokenizer.peek(err);
+            // Ignore the comma but expect it
+            if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
+          }
+          // Discard r_paren
+          _ = try self.tokenizer.next(err);
+          primary = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+            .fn_call = fnCall,
+          }});
+        },
+        // Subscript expression (array[i])
+        Token.Tag.l_bracket => {
+          // pop l_bracket
+          _ = try self.tokenizer.next(err);
+          const subscriptExpr = Ast.Subscript{
+            // For now we suppose that we cannot subscript an expression, only an identifier
+            .name = try self.getIndentifierName(err, self.nodes[primary], next),
+            .index_expression = try self.parseExpression(err),
+          };
+          const r_bracket = try self.tokenizer.next(err);
+          try self.checkToken(r_bracket, Token.Tag.r_bracket, err);
+          primary = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+            .subscript_expression = subscriptExpr,
+          }});
+        },
+        // Field access (foo.bar)
+        Token.Tag.dot => {
+          _ = try self.tokenizer.next(err);
+          const field = try self.parsePrimary(err);
+          primary = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{
+            .field_expression = Ast.FieldExpression{
+              .object = try self.getIndentifierName(err, self.nodes[primary], next),
+              .field = try self.getIndentifierName(err, self.nodes[field], next),
+            },
+          }});
+        },
+        else => break,
+      }
+    }
+
+    return primary;
   }
 
   fn parseFactor(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
@@ -1475,7 +1547,7 @@ const Parser = struct {
       }}});
     }
 
-    const primary = try parsePrimary(self, err);
+    const primary = try parsePostfix(self, err);
 
     // Update expression (i++, i--)
     const postnext = try self.tokenizer.peek(err);
@@ -1963,7 +2035,6 @@ test "expression parser test" {
   try testExpression("array[1]", &err);
   try testExpression("array[1 + 2]", &err);
   try testExpression("array[3.14 * -(!radius * radius) - ~max(x, -y, 10)]", &err);
-  // try testExpression("foo()[1]", &err);
   try testExpression("print(\"hello\")", &err);
   try testExpression("i++", &err);
   try testExpression("i--", &err);
@@ -1973,7 +2044,8 @@ test "expression parser test" {
   try testExpression("i++ * (12 - 3)", &err);
   try testExpression("-i++", &err);
   try testExpression("array[x]++", &err);
-  // try testExpression("foo.bar[x+y](z).qux++", &err);
+  try testExpression("object.field", &err);
+  try testExpression("$frame12", &err);
 }
 
 test "peekAt" {
