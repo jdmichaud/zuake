@@ -757,14 +757,16 @@ const Ast = struct {
 
   const IfStatement = struct {
     condition: Node.Index,
-    statement: NodeList,
-    else_statement: NodeList,
+    statement: Node.Index,
+    else_statement: ?Node.Index,
   };
 
   const WhileStatement = struct {
     condition: Node.Index,
     statement: []const Node.Index,
   };
+
+  const DoWhileStatement = WhileStatement;
 
   const StatementType = enum {
     var_decl,
@@ -778,9 +780,9 @@ const Ast = struct {
   const Statement = union(StatementType) {
     var_decl: Node.Index,
     return_statement: Node.Index,
-    if_statement: Node.Index,
-    while_statement: Node.Index,
-    do_while_statement: Node.Index,
+    if_statement: IfStatement,
+    while_statement: WhileStatement,
+    do_while_statement: DoWhileStatement,
     expression: Node.Index,
 
     const Self = @This();
@@ -1319,7 +1321,16 @@ const Ast = struct {
               written += (try std.fmt.bufPrint(string[written..], "return ", .{})).len;
               written += try nodes[expr].prettyPrint(nodes, string[written..]);
             },
-            .if_statement => unreachable,
+            .if_statement => |ifs| {
+              written += (try std.fmt.bufPrint(string[written..], "if (", .{})).len;
+              written += try nodes[ifs.condition].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], ") ", .{})).len;
+              written += try nodes[ifs.statement].prettyPrint(nodes, string[written..]);
+              if (ifs.else_statement) |e| {
+                written += (try std.fmt.bufPrint(string[written..], " else ", .{})).len;
+                written += try nodes[e].prettyPrint(nodes, string[written..]);
+              }
+            },
             .while_statement => unreachable,
             .do_while_statement => unreachable,
             .expression => unreachable,
@@ -1986,8 +1997,6 @@ const Parser = struct {
         continue;
       }
       node_list.appendNode(new_node);
-      const scToken = try self.tokenizer.next(err);
-      try self.checkToken(scToken, Token.Tag.semicolon, err);
       r_brace = try self.tokenizer.peek(err);
     }
     // pop r_brace
@@ -1995,13 +2004,15 @@ const Parser = struct {
     return node_list;
   }
 
-  fn parseStatement(self: *Self, err: *GenericError) !Ast.Node.Index {
-    const firstToken = try self.tokenizer.peek(err);
+  fn parseStatement(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
+    const first_token = try self.tokenizer.peek(err);
     var index: Ast.Node.Index = 0;
-    switch (firstToken.tag) {
+    switch (first_token.tag) {
       .kw_local => {
         _ = try self.tokenizer.next(err);
         index = try self.parseVariableDefinition(try self.tokenizer.next(err), true, err);
+        const scToken = try self.tokenizer.next(err);
+        try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
       .kw_return => {
         _ = try self.tokenizer.next(err);
@@ -2009,9 +2020,33 @@ const Parser = struct {
         index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
           .return_statement = expression,
         }});
+        const scToken = try self.tokenizer.next(err);
+        try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
       .kw_if => {
-
+        _ = try self.tokenizer.next(err);
+        const l_paren_oken = try self.tokenizer.next(err);
+        try self.checkToken(l_paren_oken, Token.Tag.l_paren, err);
+        const condition = try self.parseExpression(err);
+        const r_paren_token = try self.tokenizer.next(err);
+        try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
+        var if_statement = Ast.IfStatement{
+          .condition = condition,
+          .statement = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+            .statement_list = try self.parseStatements(err),
+          } }),
+          .else_statement = null,
+        };
+        const else_token = try self.tokenizer.peek(err);
+        if (else_token.tag == Token.Tag.kw_else) {
+          _ = try self.tokenizer.next(err);
+          if_statement.else_statement = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+            .statement_list = try self.parseStatements(err),
+          } });
+        }
+        index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+          .if_statement = if_statement,
+        }});
       },
       .kw_while => {
 
@@ -2024,15 +2059,16 @@ const Parser = struct {
         // ignore comments
       },
       else => {
-        std.log.debug("switch else", .{});
         // If the first token is a type, it is a global variable declaration
-        const isError = Ast.QType.fromName(self.tokenizer.buffer[firstToken.start..firstToken.end + 1]);
+        const isError = Ast.QType.fromName(self.tokenizer.buffer[first_token.start..first_token.end + 1]);
         if (isError == error.NotAType) {
           // Otherwise it is an expression
           index = try self.parseExpression(err);
         } else {
-          index = try self.parseVariableDefinition(firstToken, false, err);
+          index = try self.parseVariableDefinition(first_token, false, err);
         }
+        const scToken = try self.tokenizer.next(err);
+        try self.checkToken(scToken, Token.Tag.semicolon, err);
       }
     }
     return index;
@@ -2327,46 +2363,58 @@ test "parser test" {
   try testParse("void (string str, ...) print = #99;", &err);
   try testParse("void () enf_die1 = [$death1, enf_die2] {};", &err);
   try testParseWithOutput(
-    \\void () foo = {
+    \\float () foo = {
     \\  // Some comment
     \\  local float a = 3.14;
     \\  return 2 + a;
     \\};
     ,
-    \\void () foo = {
+    \\float () foo = {
     \\  local float a = 3.14;
     \\  return 2 + a;
     \\};
     , &err);
   // extended comment
   try testParseWithOutput(
-    \\void () foo = {
+    \\float () foo = {
     \\  /* Ignore this
     \\     comment */
     \\  local float a = 3.14;
     \\  return 2 + a;
     \\};
     ,
-    \\void () foo = {
+    \\float () foo = {
     \\  local float a = 3.14;
     \\  return 2 + a;
     \\};
     , &err);
 
   try testParseWithOutput(
-    \\void (float a) pow2 = {
+    \\float (float a) pow2 = {
     \\  return a * a;
     \\};
     ,
-    \\void (float a) pow2 = return a * a;
+    \\float (float a) pow2 = return a * a;
     , &err);
 
   try testParse(
-    \\void () foo = {
+    \\float () foo = {
     \\  local float a = 3.14;
     \\  a *= a;
     \\  return a;
     \\};
+    , &err);
+
+  try testParseWithOutput(
+    \\float (float numerator, float denominator) div = {
+    \\  if (denominator != 0) {
+    \\    return numerator / denominator;
+    \\  } else {
+    \\    error("denominator is zero");
+    \\  }
+    \\};
+    ,
+    "float (float numerator, float denominator) div = if (denominator != 0) return numerator / denominator else error(\"denominator is zero\");"
     , &err);
 }
 
