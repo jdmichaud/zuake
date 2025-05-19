@@ -1091,7 +1091,6 @@ const Ast = struct {
             written += (try std.fmt.bufPrint(string[written..], " = ", .{})).len;
             written += try value.prettyPrint(nodes, string[written..]);
           }
-          written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .fn_decl => |f| {
           written += try indentPrint(string[written..], indent, "", .{});
@@ -1122,13 +1121,11 @@ const Ast = struct {
           if (fbody) |body| {
             written += try body.prettyPrintIndent(nodes, string[written..], indent);
           }
-          written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .field_decl => |d| {
           written += try indentPrint(string[written..], indent, ".", .{});
           written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
-          written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .builtin_decl => |d| {
           written += try indentPrint(string[written..], indent, "", .{});
@@ -1142,7 +1139,7 @@ const Ast = struct {
               written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
             }
           }
-          written += (try std.fmt.bufPrint(string[written..], ") {s} = #{};", .{ d.name, d.index })).len;
+          written += (try std.fmt.bufPrint(string[written..], ") {s} = #{}", .{ d.name, d.index })).len;
         },
         .expression => |expression| {
           written += try indentPrint(string[written..], indent, "", .{});
@@ -1150,8 +1147,13 @@ const Ast = struct {
         },
         .program => |p| {
           var it = p.declarations.iter();
-          while (it.next()) |declaration| {
+          var i: usize = 0;
+          while (it.next()) |declaration| : ({ i += 1; }) {
             written += try declaration.prettyPrintIndent(nodes, string[written..], indent);
+            written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+            if (i < p.declarations.len() - 1) {
+              written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+            }
           }
         },
         .param_decl => |p| {
@@ -1162,12 +1164,10 @@ const Ast = struct {
           switch (s) {
             .var_decl => |v| {
               written += try nodes[v].prettyPrintIndent(nodes, string[written..], indent);
-              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
             },
             .return_statement => |expr| {
               written += (try std.fmt.bufPrint(string[written..], "return ", .{})).len;
               written += try nodes[expr].prettyPrint(nodes, string[written..]);
-              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
             },
             .if_statement => unreachable,
             .while_statement => unreachable,
@@ -1179,7 +1179,8 @@ const Ast = struct {
             .statement_list => |list| {
               if (list.len() == 1) {
                 const l = try list.get(0);
-                return try l.prettyPrint(nodes, string);
+                written += try l.prettyPrint(nodes, string);
+                return written;
               } else {
                 written += (try std.fmt.bufPrint(string[written..], "{{", .{})).len;
                 if (list.len() > 0) {
@@ -1188,7 +1189,7 @@ const Ast = struct {
                 var statementIt = list.iter();
                 while (statementIt.next()) |statement| {
                   written += try statement.prettyPrintIndent(nodes, string[written..], indent + 2);
-                  written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
+                  written += (try std.fmt.bufPrint(string[written..], ";\n", .{})).len;
                 }
                 written += (try std.fmt.bufPrint(string[written..], "}}", .{})).len;
                 return written;
@@ -1342,6 +1343,8 @@ const Parser = struct {
         Token.Tag.comment => {}, // ignore
         Token.Tag.type => {
           declarations.appendNode(try self.parseDeclaration(err));
+          const scToken = try self.tokenizer.next(err);
+          try self.checkToken(scToken, Token.Tag.semicolon, err);
         },
         Token.Tag.dot => { // field decl
           declarations.appendNode(try self.parseFieldDefinition(err));
@@ -1385,24 +1388,17 @@ const Parser = struct {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
         "expecting identifier found {}", .{ identifierToken });
     }
-    const eqlToken = try self.tokenizer.next(err);
+    const eqlToken = try self.tokenizer.peek(err);
     switch (eqlToken.tag) {
       Token.Tag.equal => {
+        _ = try self.tokenizer.next(err);
         const expression = try self.parseExpression(err);
-        const scToken = try self.tokenizer.next(err);
-        switch (scToken.tag) {
-          Token.Tag.semicolon => {
-            return self.insertNode(Ast.Payload{ .var_decl = Ast.VarDecl{
-              .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
-              .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
-              .value = expression,
-              .local = local,
-            }});
-          },
-          else => |t| return makeError(ParseError.EmptySource,
-            getLocation(self.tokenizer.buffer, scToken.start), err,
-            "Unexpected token {}, expecting a ';'", .{ t }),
-        }
+        return self.insertNode(Ast.Payload{ .var_decl = Ast.VarDecl{
+          .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
+          .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
+          .value = expression,
+          .local = local,
+        }});
       },
       Token.Tag.semicolon => {
         return self.insertNode(Ast.Payload{ .var_decl = Ast.VarDecl{
@@ -1439,7 +1435,6 @@ const Parser = struct {
 
   fn parsePrimary(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
     const token = try self.tokenizer.next(err);
-
     switch (token.tag) {
       Token.Tag.float_literal => {
         const value = try std.fmt.parseFloat(f32, self.tokenizer.buffer[token.start..token.end + 1]);
@@ -1494,7 +1489,7 @@ const Parser = struct {
         });
       },
       else => return makeError(ParseError.MissingMatchingParenthesis,
-        getLocation(self.tokenizer.buffer, token.start), err, "missing matching parenthesis", .{}),
+        getLocation(self.tokenizer.buffer, token.start), err, "unexpected token {}", .{ token.tag }),
     }
   }
 
@@ -1687,13 +1682,14 @@ const Parser = struct {
     }
     fnDecl.name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1];
     // Now parse the body
-    const bodyToken = try self.tokenizer.next(err);
+    const bodyToken = try self.tokenizer.peek(err);
     switch (bodyToken.tag) {
       Token.Tag.semicolon => {
         // We are dealing with a function declaration
         return self.insertNode(Ast.Payload{ .fn_decl = fnDecl });
       },
       Token.Tag.equal => {
+        _ = try self.tokenizer.next(err);
         // We have a body
         var functionContentToken = try self.tokenizer.peek(err);
         if (functionContentToken.tag == Token.Tag.l_bracket) {
@@ -1727,8 +1723,6 @@ const Parser = struct {
           Token.Tag.builtin_literal => {
             // This is a builtin declaration
             const builtinImmediateToken = try self.tokenizer.next(err);
-            const scToken = try self.tokenizer.next(err);
-            try self.checkToken(scToken, Token.Tag.semicolon, err);
             const bl = self.tokenizer.buffer[builtinImmediateToken.start + 1..builtinImmediateToken.end + 1];
             const bDecl = Ast.BuiltinDecl{
               .return_type = atype,
@@ -1745,8 +1739,6 @@ const Parser = struct {
             fnDecl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
               .statement_list = try self.parseStatements(err),
             } });
-            const scToken = try self.tokenizer.next(err);
-            try self.checkToken(scToken, Token.Tag.semicolon, err);
             return self.insertNode(Ast.Payload{ .fn_decl = fnDecl });
           },
           else => {
@@ -1784,6 +1776,8 @@ const Parser = struct {
         continue;
       }
       node_list.appendNode(new_node);
+      const scToken = try self.tokenizer.next(err);
+      try self.checkToken(scToken, Token.Tag.semicolon, err);
       r_brace = try self.tokenizer.peek(err);
     }
     // pop r_brace
@@ -1803,8 +1797,6 @@ const Parser = struct {
         index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
           .return_statement = expression,
         }});
-        const scToken = try self.tokenizer.next(err);
-        try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
       .kw_if => {
 
@@ -2062,7 +2054,7 @@ fn testParseWithOutput(source: [:0]const u8, expected_outcome: []const u8, err: 
   try expectEqualString(expected_outcome, std.mem.span(@as([*:0]const u8, @ptrCast(&output))));
 }
 
-fn testParse(source: [:0]const u8, err: *GenericError) !void {
+fn testParse(comptime source: [:0]const u8, err: *GenericError) !void {
   return testParseWithOutput(source, source, err);
 }
 
@@ -2127,6 +2119,14 @@ test "parser test" {
     \\  local float a = 3.14;
     \\  return 2 + a;
     \\};
+    , &err);
+
+  try testParseWithOutput(
+    \\void () foo = {
+    \\  return 2 + a;
+    \\};
+    ,
+    \\void () foo = return 2 + a;
     , &err);
 }
 
