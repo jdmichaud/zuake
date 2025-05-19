@@ -148,6 +148,7 @@ pub const Tokenizer = struct {
     string_literal,
     vector_literal,
     comment,
+    multiline_comment,
   };
 
   pub fn init(buffer: [:0]const u8) Self {
@@ -218,7 +219,6 @@ pub const Tokenizer = struct {
       result.end -= 1;
       return result;
     }
-
     var index = self.index;
     while (index < self.buffer.len) {
       switch (state) {
@@ -383,6 +383,10 @@ pub const Tokenizer = struct {
               state = .comment;
               result.start = index;
               index += 1;
+            } else if (index + 1 < self.buffer.len and self.buffer[index + 1] == '*') {
+              state = .multiline_comment;
+              result.start = index;
+              index += 1;
             } else {
               result.tag = .slash;
               result.start = index;
@@ -513,6 +517,16 @@ pub const Tokenizer = struct {
             return result;
           },
           else => index += 1,
+        },
+        .multiline_comment => {
+          if (self.buffer[index] == '*' and
+            index + 1 < self.buffer.len and self.buffer[index + 1] == '/') {
+            result.tag = .comment;
+            result.end = index + 1;
+            return result;
+          } else {
+            index += 1;
+          }
         },
       }
     }
@@ -1753,23 +1767,28 @@ const Parser = struct {
   }
 
   fn parseStatements(self: *Self, err: *GenericError) !Ast.NodeList {
-    var nodeList = Ast.NodeList.init(0, self.nodes);
+    var node_list = Ast.NodeList.init(0, self.nodes);
     const l_brace = try self.tokenizer.peek(err);
     if (l_brace.tag != Token.Tag.l_brace) {
       // There is only one statment (no braces)
-      nodeList.appendNode(try self.parseStatement(err));
-      return nodeList;
+      node_list.appendNode(try self.parseStatement(err));
+      return node_list;
     }
     // pop l_brace
     _ = try self.tokenizer.next(err);
     var r_brace = try self.tokenizer.peek(err);
     while (r_brace.tag != Token.Tag.r_brace) {
-      nodeList.appendNode(try self.parseStatement(err));
+      const new_node = try self.parseStatement(err);
+      if (new_node == 0) {
+        // ignore comment
+        continue;
+      }
+      node_list.appendNode(new_node);
       r_brace = try self.tokenizer.peek(err);
     }
     // pop r_brace
     _ = try self.tokenizer.next(err);
-    return nodeList;
+    return node_list;
   }
 
   fn parseStatement(self: *Self, err: *GenericError) !Ast.Node.Index {
@@ -1795,6 +1814,9 @@ const Parser = struct {
       },
       .kw_do => {
 
+      },
+      .comment => {
+        // ignore comments
       },
       else => {
         std.log.warn("switch else", .{});
@@ -1842,6 +1864,7 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag, er
   var tokenizer = Tokenizer.init(source);
   for (expected_token_tags) |expected_token_tag| {
       const token = try tokenizer.next(err);
+      std.log.debug("token {}", .{ token.tag });
       try std.testing.expectEqual(expected_token_tag, token.tag);
   }
   const last_token = try tokenizer.next(err);
@@ -1951,6 +1974,36 @@ test "tokenizer test" {
     Token.Tag.eof,
   }, &err);
 
+  const multiline_comments =
+    \\ void () main = {
+    \\   /* Some
+    \\      comment */
+    \\   string foo = "foo";
+    \\   printf(foo);
+    \\ }
+  ;
+  try testTokenize(multiline_comments, &.{
+    Token.Tag.type,
+    Token.Tag.l_paren,
+    Token.Tag.r_paren,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.l_brace,
+    Token.Tag.comment,
+    Token.Tag.type,
+    Token.Tag.identifier,
+    Token.Tag.equal,
+    Token.Tag.string_literal,
+    Token.Tag.semicolon,
+    Token.Tag.identifier,
+    Token.Tag.l_paren,
+    Token.Tag.identifier,
+    Token.Tag.r_paren,
+    Token.Tag.semicolon,
+    Token.Tag.r_brace,
+    Token.Tag.eof,
+  }, &err);
+
   const conditions =
     \\if ("foo" == "foo" && 1 != 2 || false && true) {
     \\  printf(foo);
@@ -1991,7 +2044,7 @@ fn expectEqualString(lhs: []const u8, rhs: []const u8) !void {
   }
 }
 
-fn testParse(source: [:0]const u8, err: *GenericError) !void {
+fn testParseWithOutput(source: [:0]const u8, expected_outcome: []const u8, err: *GenericError) !void {
   var ast: [256]Ast.Node = undefined;
   var output: [4096:0]u8 = .{ 0 } ** 4096;
   var parser = Parser.init(source, ast[0..]);
@@ -2006,7 +2059,11 @@ fn testParse(source: [:0]const u8, err: *GenericError) !void {
     const debug_written = try ast[0].debugPrint(&ast, &debug_str, 0);
     std.log.debug("ast:\n{s}", .{ debug_str[0..debug_written] });
   }
-  try expectEqualString(source, std.mem.span(@as([*:0]const u8, @ptrCast(&output))));
+  try expectEqualString(expected_outcome, std.mem.span(@as([*:0]const u8, @ptrCast(&output))));
+}
+
+fn testParse(source: [:0]const u8, err: *GenericError) !void {
+  return testParseWithOutput(source, source, err);
 }
 
 fn testExpression(source: [:0]const u8, err: *GenericError) !void {
@@ -2045,20 +2102,32 @@ test "parser test" {
   try testParse("void (float f, vector v) main = {};", &err);
   try testParse("void (string str, ...) print = #99;", &err);
   try testParse("void () enf_die1 = [$death1, enf_die2] {};", &err);
-  try testParse(
+  try testParseWithOutput(
+    \\void () foo = {
+    \\  // Some comment
+    \\  local float a = 3.14;
+    \\  return 2 + a;
+    \\};
+    ,
     \\void () foo = {
     \\  local float a = 3.14;
     \\  return 2 + a;
     \\};
     , &err);
   // extended comment
-  // try testParse(
-  //   \\void () foo = {
-  //   \\  /* Ignore this
-  //   \\     comment */
-  //   \\  return 42;
-  //   \\}
-  //   , &err);
+  try testParseWithOutput(
+    \\void () foo = {
+    \\  /* Ignore this
+    \\     comment */
+    \\  local float a = 3.14;
+    \\  return 2 + a;
+    \\};
+    ,
+    \\void () foo = {
+    \\  local float a = 3.14;
+    \\  return 2 + a;
+    \\};
+    , &err);
 }
 
 test "expression parser test" {
