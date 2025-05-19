@@ -66,6 +66,15 @@ pub const Token = struct {
     equal,
     double_equal,
     not_equal,
+    plus_equal,
+    minus_equal,
+    mul_equal,
+    slash_equal,
+    or_equal,
+    and_equal,
+    and_tilde_equal,
+    modulo_equal,
+    caret_equal,
     not,
     plus,
     minus,
@@ -73,6 +82,10 @@ pub const Token = struct {
     modulo,
     tilde,
     caret,
+    less_than,
+    greater_than,
+    less_or_equal,
+    greater_or_equal,
     elipsis,
     comment,
     quote,
@@ -277,39 +290,92 @@ pub const Tokenizer = struct {
             }
           },
           '+' => {
-            result.tag = .plus;
             result.start = index;
-            result.end = index;
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .plus_equal;
+              result.end = index + 1;
+            } else {
+              result.tag = .plus;
+              result.end = index;
+            }
             return result;
           },
           '-' => {
-            result.tag = .minus;
             result.start = index;
-            result.end = index;
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .minus_equal;
+              result.end = index + 1;
+            } else {
+              result.tag = .minus;
+              result.end = index;
+            }
             return result;
           },
           '*' => {
-            result.tag = .mul;
             result.start = index;
-            result.end = index;
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .mul_equal;
+              result.end = index + 1;
+            } else {
+              result.tag = .mul;
+              result.end = index;
+            }
             return result;
           },
           '%' => {
-            result.tag = .modulo;
             result.start = index;
-            result.end = index;
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .modulo_equal;
+              result.end = index + 1;
+            } else {
+              result.tag = .modulo;
+              result.end = index;
+            }
             return result;
           },
           '~' => {
-            result.tag = .tilde;
             result.start = index;
-            result.end = index;
+            // ~= not part of the gramma?
+            // if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+            //   result.tag = .tilde_equal;
+            //   result.end = index + 1;
+            // } else {
+              result.tag = .tilde;
+              result.end = index;
+            // }
             return result;
           },
           '^' => {
-            result.tag = .caret;
             result.start = index;
-            result.end = index;
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .caret_equal;
+              result.end = index + 1;
+            } else {
+              result.tag = .caret;
+              result.end = index;
+            }
+            return result;
+          },
+          '<' => {
+            result.start = index;
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .less_or_equal;
+              result.end = index + 1;
+            } else {
+              result.tag = .less_than;
+              result.end = index;
+            }
+            return result;
+          },
+          '>' => {
+            result.start = index;
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .greater_or_equal;
+              result.end = index + 1;
+            } else {
+              result.tag = .greater_than;
+              result.end = index;
+            }
             return result;
           },
           ',' => {
@@ -340,6 +406,13 @@ pub const Tokenizer = struct {
             if (index + 1 < self.buffer.len and self.buffer[index + 1] == '&') {
               result.tag = .and_;
               result.end = index + 1;
+            } else if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .and_equal;
+              result.end = index + 1;
+            } else if ((index + 1 < self.buffer.len and self.buffer[index + 1] == '~')
+              and (index + 2 < self.buffer.len and self.buffer[index + 2] == '=')) {
+              result.tag = .and_tilde_equal;
+              result.end = index + 2;
             } else {
               result.tag = .ampersand;
               result.end = index;
@@ -350,6 +423,9 @@ pub const Tokenizer = struct {
             result.start = index;
             if (index + 1 < self.buffer.len and self.buffer[index + 1] == '|') {
               result.tag = .or_;
+              result.end = index + 1;
+            } else if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .or_equal;
               result.end = index + 1;
             } else {
               result.tag = .pipe;
@@ -387,6 +463,11 @@ pub const Tokenizer = struct {
               state = .multiline_comment;
               result.start = index;
               index += 1;
+            } else if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+              result.tag = .slash_equal;
+              result.start = index;
+              result.end = index + 1;
+              return result;
             } else {
               result.tag = .slash;
               result.start = index;
@@ -691,6 +772,7 @@ const Ast = struct {
     if_statement,
     while_statement,
     do_while_statement,
+    expression,
   };
 
   const Statement = union(StatementType) {
@@ -699,6 +781,7 @@ const Ast = struct {
     if_statement: Node.Index,
     while_statement: Node.Index,
     do_while_statement: Node.Index,
+    expression: Node.Index,
 
     const Self = @This();
     pub fn prettyPrint(self: Self, string: []u8) !usize {
@@ -785,6 +868,24 @@ const Ast = struct {
     modulo,
     not,
     complement,
+    equal,
+    double_equal,
+    not_equal,
+    plus_equal,
+    minus_equal,
+    mul_equal,
+    slash_equal,
+    or_equal,
+    and_equal,
+    and_tilde_equal,
+    modulo_equal,
+    caret_equal,
+    less_than,
+    greater_than,
+    less_or_equal,
+    greater_or_equal,
+    logical_and,
+    logical_or,
 
     fn fromToken(t: Token) !Operator {
       return switch (t.tag) {
@@ -795,19 +896,55 @@ const Ast = struct {
         .modulo => .modulo,
         .not => .not,
         .tilde => .complement,
+        .equal => .equal,
+        .double_equal => .double_equal,
+        .not_equal => .not_equal,
+        .plus_equal => .plus_equal,
+        .minus_equal => .minus_equal,
+        .mul_equal => .mul_equal,
+        .slash_equal => .slash_equal,
+        .or_equal => .or_equal,
+        .and_equal => .and_equal,
+        .and_tilde_equal => .and_tilde_equal,
+        .modulo_equal => .modulo_equal,
+        .caret_equal => .caret_equal,
+        .less_than => .less_than,
+        .greater_than => .greater_than,
+        .less_or_equal => .less_or_equal,
+        .greater_or_equal => .greater_or_equal,
+        .and_ => .logical_and,
+        .or_ => .logical_or,
         else => error.UnknownOperator,
       };
     }
 
-    pub fn toChar(o: Operator) u8 {
+    pub fn toString(o: Operator) []const u8 {
       return switch (o) {
-        .plus => '+',
-        .minus => '-',
-        .mul => '*',
-        .div => '/',
-        .modulo => '%',
-        .not => '!',
-        .complement => '~',
+        .plus => "+",
+        .minus => "-",
+        .mul => "*",
+        .div => "/",
+        .modulo => "%",
+        .not => "!",
+        .complement => "~",
+        .equal => "=",
+        .double_equal => "==",
+        .not_equal => "!=",
+        .plus_equal => "+=",
+        .minus_equal => "-=",
+        .mul_equal => "*=",
+        .slash_equal => "/=",
+        .or_equal => "|=",
+        .and_equal => "&=",
+        .and_tilde_equal => "&~=",
+        .modulo_equal => "%=",
+        .caret_equal => "~",
+        .less_than => "<",
+        .greater_than => ">",
+        .less_or_equal => "<=",
+        .greater_or_equal => ">=",
+        .logical_and => "&&",
+        .logical_or => "||",
       };
     }
   };
@@ -843,6 +980,12 @@ const Ast = struct {
     operator: Operator,
   };
 
+  const Assignment = struct {
+    identifier: Node.Index,
+    operator: Operator,
+    value: Node.Index,
+  };
+
   const ExpressionType = enum {
     binary_op,
     unary_op,
@@ -856,6 +999,7 @@ const Ast = struct {
     update_expression,
     field_expression,
     frame_identifier,
+    assignment,
   };
 
   const Expression = union(ExpressionType) {
@@ -871,17 +1015,18 @@ const Ast = struct {
     update_expression: UpdateExpression,
     field_expression: FieldExpression,
     frame_identifier: Identifier,
+    assignment: Assignment,
 
     pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
       var written: usize = 0;
       switch (self) {
         .unary_op => |u| {
-          written += (try std.fmt.bufPrint(string[written..], "{c}", .{ Operator.toChar(u.operator) })).len;
+          written += (try std.fmt.bufPrint(string[written..], "{s}", .{ Operator.toString(u.operator) })).len;
           written += try nodes[u.operand].prettyPrint(nodes, string[written..]);
         },
         .binary_op => |b| {
           written += try nodes[b.lhs].prettyPrint(nodes, string[written..]);
-          written += (try std.fmt.bufPrint(string[written..], " {c} ", .{ Operator.toChar(b.operator) })).len;
+          written += (try std.fmt.bufPrint(string[written..], " {s} ", .{ Operator.toString(b.operator) })).len;
           written += try nodes[b.rhs].prettyPrint(nodes, string[written..]);
         },
         .fn_call => |fc| {
@@ -935,6 +1080,11 @@ const Ast = struct {
         .frame_identifier => |f| {
           written += (try std.fmt.bufPrint(string[written..], "{s}", .{ f.name })).len;
         },
+        .assignment => |a| {
+          written += try nodes[a.identifier].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], " {s} ", .{ Ast.Operator.toString(a.operator) })).len;
+          written += try nodes[a.value].prettyPrint(nodes, string[written..]);
+        }
       }
       return written;
     }
@@ -1031,7 +1181,7 @@ const Ast = struct {
           switch (e) {
             .update_expression => |ue| {
               written += try indentPrint(string[written..], indent, "UPDATE_EXPRESSION\n", .{});
-              written += try indentPrint(string[written..], indent, "  operator: {c}\n", .{ Ast.Operator.toChar(ue.operator) });
+              written += try indentPrint(string[written..], indent, "  operator: {s}\n", .{ Ast.Operator.toString(ue.operator) });
               written += try indentPrint(string[written..], indent, "  subexpression:\n", .{});
               written += try nodes[ue.expression].debugPrint(nodes, string[written..], indent + 4);
             },
@@ -1172,6 +1322,7 @@ const Ast = struct {
             .if_statement => unreachable,
             .while_statement => unreachable,
             .do_while_statement => unreachable,
+            .expression => unreachable,
           }
         },
         .body => |b| {
@@ -1199,8 +1350,6 @@ const Ast = struct {
               return (try std.fmt.bufPrint(string, "#{}", .{ index })).len;
             },
           }
-
-
         },
         // .scope => |s| {
         //   written += (try std.fmt.bufPrint(string[written..], "{{\n", .{})).len;
@@ -1316,14 +1465,6 @@ const Parser = struct {
   }
 
   // Append an already created node to the node list and return its index
-  // fn insertNode(self: *Self, node: Ast.Node) !Ast.Node.Index {
-  //   if (self.nb_nodes >= self.nodes.len) {
-  //     return error.NodeOutOfCapacity;
-  //   }
-  //   self.nodes[self.nb_nodes] = node;
-  //   self.nb_nodes += 1;
-  //   return self.nb_nodes - 1;
-  // }
   fn insertNode(self: *Self, payload: Ast.Payload) !Ast.Node.Index {
     const node = Ast.Node{ .payload = payload, .next = 0 };
     if (self.nb_nodes >= self.nodes.len) {
@@ -1623,13 +1764,7 @@ const Parser = struct {
     return lhs;
   }
 
-  // Forward Declarations for Parsing Functions (Grammar Hierarchy)
-  // expression ::= term ( ( '+' | '-' ) term )*
-  // term       ::= factor ( ( '*' | '/' | '%' ) factor )*
-  // factor     ::= '-' factor | power      // Unary minus applied here
-  // power      ::= primary ( '^' power )?   // Exponentiation (right-assoc) applied here
-  // primary    ::= NUMBER | IDENTIFIER | IDENTIFIER '(' [expression] ')' | '(' expression ')'
-  fn parseExpression(self: *Self, err: *GenericError) !Ast.Node.Index {
+  fn parseQuantity(self: *Self, err: *GenericError) !Ast.Node.Index {
     var lhs = try self.parseTerm(err);
 
     var peek_token = try self.tokenizer.peek(err);
@@ -1646,6 +1781,81 @@ const Parser = struct {
     }
 
     return lhs;
+  }
+
+  fn parsePredicate(self: *Self, err: *GenericError) !Ast.Node.Index {
+    var lhs = try self.parseQuantity(err);
+
+    var peek_token = try self.tokenizer.peek(err);
+    while (peek_token.tag == Token.Tag.less_than or peek_token.tag == Token.Tag.less_or_equal or
+      peek_token.tag == Token.Tag.greater_than or peek_token.tag == Token.Tag.greater_or_equal or
+      peek_token.tag == Token.Tag.double_equal or peek_token.tag == Token.Tag.not_equal) {
+      _ = try self.tokenizer.next(err);
+
+      const rhs = try self.parseQuantity(err);
+      lhs = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .binary_op = Ast.BinaryOp {
+        .operator = try Ast.Operator.fromToken(peek_token),
+        .lhs = lhs,
+        .rhs = rhs,
+      }}});
+      peek_token = try self.tokenizer.peek(err);
+    }
+
+    return lhs;
+  }
+
+  fn parseValue(self: *Self, err: *GenericError) !Ast.Node.Index {
+    var lhs = try self.parsePredicate(err);
+
+    var peek_token = try self.tokenizer.peek(err);
+    while (peek_token.tag == Token.Tag.and_ or peek_token.tag == Token.Tag.or_) {
+      _ = try self.tokenizer.next(err);
+
+      const rhs = try self.parsePredicate(err);
+      lhs = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .binary_op = Ast.BinaryOp {
+        .operator = try Ast.Operator.fromToken(peek_token),
+        .lhs = lhs,
+        .rhs = rhs,
+      }}});
+      peek_token = try self.tokenizer.peek(err);
+    }
+
+    return lhs;
+  }
+
+  // Forward Declarations for Parsing Functions (Grammar Hierarchy)
+  // expression ::= (identifier ( ('=' | '+=' | '-=' | '*=' | '/=' | '|=' | '&=' | '&~=' | '%=' | '^=') )* value
+  // value      ::= predicate ( ( '||' | '&&' ) predicate )*
+  // predicate  ::= quantity ( ( '<' | '<=' | '>' | '>=' | '==' | '!=' ) quantity )*
+  // quantity   ::= term ( ( '+' | '-' ) term )*
+  // term       ::= factor ( ( '*' | '/' | '%' ) factor )*
+  // factor     ::= '-' factor | power      // Unary minus applied here
+  // power      ::= primary ( '^' power )?   // Exponentiation (right-assoc) applied here
+  // primary    ::= NUMBER | IDENTIFIER | IDENTIFIER '(' [expression] ')' | '(' expression ')'
+  fn parseExpression(self: *Self, err: *GenericError) !Ast.Node.Index {
+    const value = try self.parseValue(err);
+
+    const operator_token = try self.tokenizer.peek(err);
+    if (
+      operator_token.tag == Token.Tag.equal or
+      operator_token.tag == Token.Tag.plus_equal or
+      operator_token.tag == Token.Tag.minus_equal or
+      operator_token.tag == Token.Tag.mul_equal or
+      operator_token.tag == Token.Tag.slash_equal or
+      operator_token.tag == Token.Tag.or_equal or
+      operator_token.tag == Token.Tag.and_equal or
+      operator_token.tag == Token.Tag.and_tilde_equal or
+      operator_token.tag == Token.Tag.modulo_equal or
+      operator_token.tag == Token.Tag.caret_equal
+    ) {
+      _ = try self.tokenizer.next(err);
+      return try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .assignment = Ast.Assignment {
+        .identifier = value,
+        .operator = try Ast.Operator.fromToken(operator_token),
+        .value = try self.parseExpression(err),
+      }}});
+    }
+    return value;
   }
 
   fn parseFunctionDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node.Index {
@@ -1786,13 +1996,15 @@ const Parser = struct {
   }
 
   fn parseStatement(self: *Self, err: *GenericError) !Ast.Node.Index {
-    const firstToken = try self.tokenizer.next(err);
+    const firstToken = try self.tokenizer.peek(err);
     var index: Ast.Node.Index = 0;
     switch (firstToken.tag) {
       .kw_local => {
+        _ = try self.tokenizer.next(err);
         index = try self.parseVariableDefinition(try self.tokenizer.next(err), true, err);
       },
       .kw_return => {
+        _ = try self.tokenizer.next(err);
         const expression = try self.parseExpression(err);
         index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
           .return_statement = expression,
@@ -1808,17 +2020,16 @@ const Parser = struct {
 
       },
       .comment => {
+        _ = try self.tokenizer.next(err);
         // ignore comments
       },
       else => {
-        std.log.warn("switch else", .{});
+        std.log.debug("switch else", .{});
         // If the first token is a type, it is a global variable declaration
         const isError = Ast.QType.fromName(self.tokenizer.buffer[firstToken.start..firstToken.end + 1]);
         if (isError == error.NotAType) {
           // Otherwise it is an expression
           index = try self.parseExpression(err);
-          const scToken = try self.tokenizer.next(err);
-          try self.checkToken(scToken, Token.Tag.semicolon, err);
         } else {
           index = try self.parseVariableDefinition(firstToken, false, err);
         }
@@ -1886,6 +2097,27 @@ test "tokenizer test" {
     Token.Tag.type,
     Token.Tag.identifier,
     Token.Tag.equal,
+    Token.Tag.float_literal,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("f += 2;", &.{
+    Token.Tag.identifier,
+    Token.Tag.plus_equal,
+    Token.Tag.float_literal,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("f /= 2;", &.{
+    Token.Tag.identifier,
+    Token.Tag.slash_equal,
+    Token.Tag.float_literal,
+    Token.Tag.semicolon,
+    Token.Tag.eof,
+  }, &err);
+  try testTokenize("f &~= 2;", &.{
+    Token.Tag.identifier,
+    Token.Tag.and_tilde_equal,
     Token.Tag.float_literal,
     Token.Tag.semicolon,
     Token.Tag.eof,
@@ -2122,11 +2354,19 @@ test "parser test" {
     , &err);
 
   try testParseWithOutput(
-    \\void () foo = {
-    \\  return 2 + a;
+    \\void (float a) pow2 = {
+    \\  return a * a;
     \\};
     ,
-    \\void () foo = return 2 + a;
+    \\void (float a) pow2 = return a * a;
+    , &err);
+
+  try testParse(
+    \\void () foo = {
+    \\  local float a = 3.14;
+    \\  a *= a;
+    \\  return a;
+    \\};
     , &err);
 }
 
@@ -2168,6 +2408,18 @@ test "expression parser test" {
   try testExpression("array[x]++", &err);
   try testExpression("object.field", &err);
   try testExpression("$frame12", &err);
+  try testExpression("a < b", &err);
+  try testExpression("a > b", &err);
+  try testExpression("a == b", &err);
+  try testExpression("a != b", &err);
+  try testExpression("a && b", &err);
+  try testExpression("a || b", &err);
+  try testExpression("1 < 2 && 3 >= 2 || 0", &err);
+  try testExpression("a = 23", &err);
+  try testExpression("a /= 23", &err);
+  try testExpression("a &~= 23", &err);
+  try testExpression("a = b += 23", &err);
+  try testExpression("a = b = 23 * (3 && 9)", &err);
 }
 
 test "peekAt" {
