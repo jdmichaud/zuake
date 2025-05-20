@@ -1361,7 +1361,13 @@ const Ast = struct {
               written += (try std.fmt.bufPrint(string[written..], ") ", .{})).len;
               written += try nodes[w.statement].prettyPrintIndent(nodes, string[written..], indent);
             },
-            .do_while_statement => unreachable,
+            .do_while_statement => |w| {
+              written += (try std.fmt.bufPrint(string[written..], "do ", .{})).len;
+              written += try nodes[w.statement].prettyPrintIndent(nodes, string[written..], indent);
+              written += (try std.fmt.bufPrint(string[written..], " while (", .{})).len;
+              written += try nodes[w.condition].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], ")", .{})).len;
+            },
             .expression => |e| {
               written += try nodes[e].prettyPrint(nodes, string[written..]);
               written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
@@ -2051,8 +2057,8 @@ const Parser = struct {
       },
       .kw_if => {
         _ = try self.tokenizer.next(err);
-        const l_paren_oken = try self.tokenizer.next(err);
-        try self.checkToken(l_paren_oken, Token.Tag.l_paren, err);
+        const l_paren_token = try self.tokenizer.next(err);
+        try self.checkToken(l_paren_token, Token.Tag.l_paren, err);
         const condition = try self.parseExpression(err);
         const r_paren_token = try self.tokenizer.next(err);
         try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
@@ -2077,8 +2083,8 @@ const Parser = struct {
       },
       .kw_while => {
         _ = try self.tokenizer.next(err);
-        const l_paren_oken = try self.tokenizer.next(err);
-        try self.checkToken(l_paren_oken, Token.Tag.l_paren, err);
+        const l_paren_token = try self.tokenizer.next(err);
+        try self.checkToken(l_paren_token, Token.Tag.l_paren, err);
         const condition = try self.parseExpression(err);
         const r_paren_token = try self.tokenizer.next(err);
         try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
@@ -2095,7 +2101,28 @@ const Parser = struct {
         }});
       },
       .kw_do => {
+        _ = try self.tokenizer.next(err);
 
+        const statement = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+          .statement_list = try self.parseStatements(err),
+        } });
+
+        const while_token = try self.tokenizer.next(err);
+        try self.checkToken(while_token, Token.Tag.kw_while, err);
+        const l_paren_token = try self.tokenizer.next(err);
+        try self.checkToken(l_paren_token, Token.Tag.l_paren, err);
+        const condition = try self.parseExpression(err);
+        const r_paren_token = try self.tokenizer.next(err);
+        try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
+
+        const do_while_statement = Ast.WhileStatement{
+          .condition = condition,
+          .statement = statement,
+        };
+
+        index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+          .do_while_statement = do_while_statement,
+        }});
       },
       .comment => {
         _ = try self.tokenizer.next(err);
@@ -2486,6 +2513,41 @@ test "parser test" {
     \\    }
     \\    i++;
     \\  }
+    \\  pi *= 4;
+    \\  print("Approximation of pi: %.15f\n", pi);
+    \\  return pi;
+    \\};
+    , &err);
+
+  try testParseWithOutput(
+    \\float (float n) main = {
+    \\  float pi = 0;
+    \\  float i = 0;
+    \\  do {
+    \\    if (i % 2 == 0)
+    \\      pi += 1.0 / (2 * i + 1);
+    \\    else
+    \\      pi -= 1.0 / (2 * i + 1);
+    \\    i++;
+    \\  } while (i < n)
+    \\
+    \\  pi *= 4;
+    \\
+    \\  print("Approximation of pi: %.15f\n", pi);
+    \\  return pi;
+    \\};
+    ,
+    \\float (float n) main = {
+    \\  float pi = 0;
+    \\  float i = 0;
+    \\  do {
+    \\    if (i % 2 == 0) {
+    \\      pi += 1 / (2 * i + 1);
+    \\    } else {
+    \\      pi -= 1 / (2 * i + 1);
+    \\    }
+    \\    i++;
+    \\  } while (i < n)
     \\  pi *= 4;
     \\  print("Approximation of pi: %.15f\n", pi);
     \\  return pi;
