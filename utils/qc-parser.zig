@@ -1524,8 +1524,6 @@ pub const Parser = struct {
         Token.Tag.comment => _ = try self.tokenizer.next(err), // ignore
         Token.Tag.type => {
           declarations.appendNode(try self.parseDeclaration(err));
-          const scToken = try self.tokenizer.next(err);
-          try self.checkToken(scToken, Token.Tag.semicolon, err);
         },
         Token.Tag.dot => { // field decl
           declarations.appendNode(try self.parseFieldDefinition(err));
@@ -1552,10 +1550,23 @@ pub const Parser = struct {
     const identifierToken = try self.tokenizer.peek(err);
     switch (identifierToken.tag) {
       Token.Tag.identifier => {
-        return try self.parseVariableDefinition(typeToken, false, err);
+        const is_c_style_function = (try self.tokenizer.peekAt(err, 2)).tag == Token.Tag.l_paren;
+        if (is_c_style_function) {
+          return try self.parseFunctionDefinition(typeToken, err);
+        }
+        const var_decl = try self.parseVariableDefinition(typeToken, false, err);
+        const scToken = try self.tokenizer.next(err);
+        try self.checkToken(scToken, Token.Tag.semicolon, err);
+        return var_decl;
       },
       Token.Tag.l_paren => { // function declaration/definition
-        return try self.parseFunctionDefinition(typeToken, err);
+        const fn_def = try self.parseFunctionDefinition(typeToken, err);
+        // semicolon is optional
+        const sc_token = try self.tokenizer.peek(err);
+        if (sc_token.tag == Token.Tag.semicolon) {
+          _ = try self.tokenizer.next(err);
+        }
+        return fn_def;
       },
       else => |t| return makeError(ParseError.EmptySource,
         getLocation(self.tokenizer.buffer, identifierToken.start), err,
@@ -1898,16 +1909,33 @@ pub const Parser = struct {
     return value;
   }
 
+  // Parsing of function parameters used at two different places:
+  // C-style function definition.
+  // QuakeC-style function definition.
+  fn parseFunctionParameters(self: *Self, parameter_list: *Ast.NodeList, err: *GenericError) !void {
+    // pop l_paren
+    _ = try self.tokenizer.next(err);
+
+    var r_paren = try self.tokenizer.peek(err);
+    // Parse the parameter declaration until we reach a r_paren
+    while (r_paren.tag != Token.Tag.r_paren) {
+      parameter_list.appendNode(try self.parseParamDeclaration(err));
+      r_paren = try self.tokenizer.peek(err);
+      // Ignore the comma but expect it
+      if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
+    }
+    // Pop r_paren and expect the name of the function
+    _ = try self.tokenizer.next(err);
+  }
+
   fn parseFunctionDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node.Index {
     // Retrieve the return type
     const atype = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]) catch |e| {
       return makeError(e, getLocation(self.tokenizer.buffer, typeToken.start), err,
         "Expecting a type got {s}", .{ self.tokenizer.buffer[typeToken.start..typeToken.end + 1] });
     };
-    // pop l_paren
-    _ = try self.tokenizer.next(err);
     // Create a temporary
-    var fnDecl = Ast.FnDecl{
+    var fn_decl = Ast.FnDecl{
       .return_type = atype,
       .name = "",
       .frame_specifier = null,
@@ -1915,32 +1943,36 @@ pub const Parser = struct {
       .body = 0,
     };
     // Peek at the next token
-    var r_paren = try self.tokenizer.peek(err);
-    // Parse the parameter declaration until we reach a r_paren
-    while (r_paren.tag != Token.Tag.r_paren) {
-      fnDecl.parameter_list.appendNode(try self.parseParamDeclaration(err));
-      r_paren = try self.tokenizer.peek(err);
-      // Ignore the comma but expect it
-      if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
+    var l_paren = try self.tokenizer.peek(err);
+    if (l_paren.tag == Token.Tag.l_paren) {
+      // This is a QuakeC-style funcion definition with the parameters before the
+      // function identifier.
+      try self.parseFunctionParameters(&fn_decl.parameter_list, err);
     }
-    // Pop r_paren and expect the name of the function
-    _ = try self.tokenizer.next(err);
     const identifierToken = try self.tokenizer.next(err);
     if (identifierToken.tag != Token.Tag.identifier) {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
         "expecting function name found {}", .{ identifierToken });
     }
-    fnDecl.name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1];
+    fn_decl.name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1];
     // Now parse the body
     const bodyToken = try self.tokenizer.peek(err);
     switch (bodyToken.tag) {
       Token.Tag.semicolon => {
         // We are dealing with a function declaration
-        return self.insertNode(Ast.Payload{ .fn_decl = fnDecl });
+        return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
       },
-      Token.Tag.equal => {
-        _ = try self.tokenizer.next(err);
-        // We have a body
+      Token.Tag.equal, Token.Tag.l_paren => {
+        // To support C-style function definition, check if we have equal and pop it
+        if (bodyToken.tag == Token.Tag.equal) {
+          _ = try self.tokenizer.next(err);
+        } else {
+          // This is a C-style funcion definition with the parameters before the
+          // function identifier.
+          l_paren = try self.tokenizer.peek(err);
+          try self.checkToken(l_paren, Token.Tag.l_paren, err);
+          try self.parseFunctionParameters(&fn_decl.parameter_list, err);
+        }
         var functionContentToken = try self.tokenizer.peek(err);
         if (functionContentToken.tag == Token.Tag.l_bracket) {
           // Frame specifier
@@ -1963,7 +1995,7 @@ pub const Parser = struct {
           };
           const r_bracket_token = try self.tokenizer.next(err);
           try self.checkToken(r_bracket_token, Token.Tag.r_bracket, err);
-          fnDecl.frame_specifier = Ast.FrameSpecifier{
+          fn_decl.frame_specifier = Ast.FrameSpecifier{
             .frame_identifier = frame_identifier,
             .next_function = next_function,
           };
@@ -1976,8 +2008,8 @@ pub const Parser = struct {
             const bl = self.tokenizer.buffer[builtinImmediateToken.start + 1..builtinImmediateToken.end + 1];
             const bDecl = Ast.BuiltinDecl{
               .return_type = atype,
-              .name = fnDecl.name,
-              .parameter_list = fnDecl.parameter_list,
+              .name = fn_decl.name,
+              .parameter_list = fn_decl.parameter_list,
               .index = try std.fmt.parseInt(u16, bl, 10),
             };
             return self.insertNode(Ast.Payload{ .builtin_decl = bDecl });
@@ -1986,18 +2018,18 @@ pub const Parser = struct {
             // This is a statement list
             // We don't pop l_brace here to let parseStatements knows if its a multi or mono
             // statement situation
-            fnDecl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+            fn_decl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
               .statement_list = try self.parseStatements(err),
             } });
-            return self.insertNode(Ast.Payload{ .fn_decl = fnDecl });
+            return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
           },
           else => {
             // This is an expression
             const expression = try self.parseExpression(err);
-            fnDecl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+            fn_decl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
               .statement_list = Ast.NodeList.init(expression, self.nodes)
             } });
-            return self.insertNode(Ast.Payload{ .fn_decl = fnDecl });
+            return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
           }
         }
       },
@@ -2471,6 +2503,32 @@ test "parser test" {
     \\  local float a = 3.14;
     \\  a *= a;
     \\  return a;
+    \\};
+    , &err);
+
+  // Support for C like function definition
+  try testParseWithOutput(
+    \\float foo() {
+    \\  local float a = 3.14;
+    \\  return 2 + a;
+    \\}
+    ,
+    \\float () foo = {
+    \\  local float a = 3.14;
+    \\  return 2 + a;
+    \\};
+    , &err);
+
+  // Even with QuakeC-style function definition the semicolon is optional
+  try testParseWithOutput(
+    \\float () foo = {
+    \\  local float a = 3.14;
+    \\  return 2 + a;
+    \\}
+    ,
+    \\float () foo = {
+    \\  local float a = 3.14;
+    \\  return 2 + a;
     \\};
     , &err);
 
