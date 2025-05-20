@@ -122,7 +122,7 @@ pub const Location = struct {
 
 pub const GenericError = struct {
   message: [255:0]u8 = [_:0]u8{ 0 } ** 255,
-  location: Location = .{ .column = 0, .row = 0 },
+  location: Location = .{ .column = 1, .row = 1 },
 
   pub fn prettyPrint(self: @This(), buf: []u8) !usize {
     return (try std.fmt.bufPrint(buf, "{}:{}: {s}", .{
@@ -133,7 +133,7 @@ pub const GenericError = struct {
 
 pub fn getLocation(buffer: []const u8, index: usize) Location {
   var i: usize = 0;
-  var location = Location{ .column = 0, .row = 0 };
+  var location = Location{ .column = 1, .row = 1 };
   while (i < index) : (i += 1) {
     location.column += 1;
     if (buffer[i] == '\n') {
