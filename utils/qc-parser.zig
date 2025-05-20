@@ -175,10 +175,12 @@ pub const Tokenizer = struct {
     if (self.next_token) |token| {
       self.next_token = null;
       self.index = token.end + 1;
+      // std.log.debug("next {}", .{ token });
       return token;
     } else {
       const token = try self.get_next_token(err);
       self.index = token.end + 1;
+      // std.log.debug("next {}", .{ token });
       return token;
     }
   }
@@ -523,10 +525,10 @@ pub const Tokenizer = struct {
           },
           else => {
             const KeywordEnum = enum {
-              @"void", @"float", @"string", @"vector", @"if", @"else", @"while", @"do", @"local", @"return", @"0unknown",
+              @"void", @"float", @"string", @"vector", @"entity", @"if", @"else", @"while", @"do", @"local", @"return", @"0unknown",
             };
             switch (std.meta.stringToEnum(KeywordEnum, self.buffer[result.start..result.end + 1]) orelse .@"0unknown") {
-              .@"void", .@"float", .@"string", .@"vector" => result.tag = .type,
+              .@"void", .@"float", .@"string", .@"vector", .@"entity" => result.tag = .type,
               .@"if" => result.tag = .kw_if,
               .@"else" => result.tag = .kw_else,
               .@"while" => result.tag = .kw_while,
@@ -669,6 +671,7 @@ pub const Ast = struct {
     Float,
     Vector,
     String,
+    Entity,
 
     const Self = @This();
     pub fn prettyPrint(self: Self, string: []u8) !usize {
@@ -677,6 +680,7 @@ pub const Ast = struct {
         .Float => return (try std.fmt.bufPrint(string, "float", .{})).len,
         .Vector => return (try std.fmt.bufPrint(string, "vector", .{})).len,
         .String => return (try std.fmt.bufPrint(string, "string", .{})).len,
+        .Entity => return (try std.fmt.bufPrint(string, "entity", .{})).len,
       }
     }
 
@@ -692,6 +696,9 @@ pub const Ast = struct {
       }
       if (std.mem.eql(u8, name, "string")) {
         return QType.String;
+      }
+      if (std.mem.eql(u8, name, "entity")) {
+        return QType.Entity;
       }
       return error.NotAType;
     }
