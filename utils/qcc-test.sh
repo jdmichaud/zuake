@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 
-set -e
+# set -e
 
 zig build-exe -freference-trace qcc.zig
 mv qcc /tmp/
 
+total=0
+pass=0
 for qcfiles in $(ls -Sr ../tests/quakec/*.qc)
 do
   echo -n "..${qcfiles}... "
@@ -14,8 +16,11 @@ do
   if [ $res -eq 0 ]
   then
     echo "OK"
+    pass=$((pass+1))
   else
     echo "KO"
     cat ${output_filename}
   fi
+  total=$((total+1))
 done
+echo ${pass}/${total} tests
