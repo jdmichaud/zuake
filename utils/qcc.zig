@@ -763,7 +763,7 @@ const Ast = struct {
 
   const WhileStatement = struct {
     condition: Node.Index,
-    statement: []const Node.Index,
+    statement: Node.Index,
   };
 
   const DoWhileStatement = WhileStatement;
@@ -1207,9 +1207,31 @@ const Ast = struct {
           const n = try p.prettyPrint(&paramstr);
           written += try indentPrint(string[written..], indent, "PARAM_DECL {s}\n", .{ paramstr[0..n] });
         },
-        .statement => unreachable,
-        .body => |_| {
-          written += try indentPrint(string[written..], indent, "BODY\n", .{});
+        .statement => |s| {
+          written += try indentPrint(string[written..], indent, "STATEMENT", .{});
+          written += switch (s) {
+            .var_decl => (try std.fmt.bufPrint(string[written..], " VAR_DECL\n", .{})).len,
+            .return_statement => (try std.fmt.bufPrint(string[written..], " RETURN_STATEMENT\n", .{})).len,
+            .if_statement => (try std.fmt.bufPrint(string[written..], " IF_STATEMENT\n", .{})).len,
+            .while_statement => (try std.fmt.bufPrint(string[written..], " WHILE_STATEMENT\n", .{})).len,
+            .do_while_statement => (try std.fmt.bufPrint(string[written..], " DO_WHILE_STATEMENT\n", .{})).len,
+            .expression => (try std.fmt.bufPrint(string[written..], " EXPRESSION\n", .{})).len,
+          };
+        },
+        .body => |b| {
+          switch (b) {
+            .statement_list => |list| {
+              written += try indentPrint(string[written..], indent, "STATEMENTS:\n", .{});
+              var statementIt = list.iter();
+              while (statementIt.next()) |statement| {
+                written += try statement.debugPrint(nodes, string[written..], indent + 2);
+              }
+            },
+            .builtin_immediate => |_| {
+              written += try indentPrint(string[written..], indent, "BUILTIN_IMMEDIATE\n", .{});
+            },
+          }
+          return written;
         },
         // .scope => |s| {
         //   written += (try std.fmt.bufPrint(string[written..], "{{\n", .{})).len;
@@ -1315,35 +1337,45 @@ const Ast = struct {
           written += try indentPrint(string[written..], indent, "", .{});
           switch (s) {
             .var_decl => |v| {
-              written += try nodes[v].prettyPrintIndent(nodes, string[written..], indent);
+              written += try nodes[v].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
             },
             .return_statement => |expr| {
               written += (try std.fmt.bufPrint(string[written..], "return ", .{})).len;
               written += try nodes[expr].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
             },
             .if_statement => |ifs| {
               written += (try std.fmt.bufPrint(string[written..], "if (", .{})).len;
               written += try nodes[ifs.condition].prettyPrint(nodes, string[written..]);
               written += (try std.fmt.bufPrint(string[written..], ") ", .{})).len;
-              written += try nodes[ifs.statement].prettyPrint(nodes, string[written..]);
+              written += try nodes[ifs.statement].prettyPrintIndent(nodes, string[written..], indent);
               if (ifs.else_statement) |e| {
                 written += (try std.fmt.bufPrint(string[written..], " else ", .{})).len;
-                written += try nodes[e].prettyPrint(nodes, string[written..]);
+                written += try nodes[e].prettyPrintIndent(nodes, string[written..], indent);
               }
             },
-            .while_statement => unreachable,
+            .while_statement => |w| {
+              written += (try std.fmt.bufPrint(string[written..], "while (", .{})).len;
+              written += try nodes[w.condition].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], ") ", .{})).len;
+              written += try nodes[w.statement].prettyPrintIndent(nodes, string[written..], indent);
+            },
             .do_while_statement => unreachable,
-            .expression => unreachable,
+            .expression => |e| {
+              written += try nodes[e].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+            },
           }
         },
         .body => |b| {
           switch (b) {
             .statement_list => |list| {
-              if (list.len() == 1) {
-                const l = try list.get(0);
-                written += try l.prettyPrint(nodes, string);
-                return written;
-              } else {
+              // if (list.len() == 1) {
+              //   const l = try list.get(0);
+              //   written += try l.prettyPrint(nodes, string);
+              //   return written;
+              // } else {
                 written += (try std.fmt.bufPrint(string[written..], "{{", .{})).len;
                 if (list.len() > 0) {
                   written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
@@ -1351,26 +1383,17 @@ const Ast = struct {
                 var statementIt = list.iter();
                 while (statementIt.next()) |statement| {
                   written += try statement.prettyPrintIndent(nodes, string[written..], indent + 2);
-                  written += (try std.fmt.bufPrint(string[written..], ";\n", .{})).len;
+                  written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
                 }
-                written += (try std.fmt.bufPrint(string[written..], "}}", .{})).len;
+                written += try indentPrint(string[written..], indent, "}}", .{});
                 return written;
-              }
+              // }
             },
             .builtin_immediate => |index| {
               return (try std.fmt.bufPrint(string, "#{}", .{ index })).len;
             },
           }
         },
-        // .scope => |s| {
-        //   written += (try std.fmt.bufPrint(string[written..], "{{\n", .{})).len;
-        //   for (s.instructions) |param| {
-        //     // TODO: indentation here
-        //     written += try param.prettyPrint(string[written..]);
-        //     written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
-        //   }
-        //   written += (try std.fmt.bufPrint(string[written..], "}}\n", .{})).len;
-        // },
       }
       return written;
     }
@@ -1538,7 +1561,7 @@ const Parser = struct {
     const identifierToken = try self.tokenizer.next(err);
     if (identifierToken.tag != Token.Tag.identifier) {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
-        "expecting identifier found {}", .{ identifierToken });
+        "expecting identifier found {}", .{ identifierToken.tag });
     }
     const eqlToken = try self.tokenizer.peek(err);
     switch (eqlToken.tag) {
@@ -1976,7 +1999,7 @@ const Parser = struct {
     }
 
     return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, bodyToken.start), err,
-      "expecting function body, got {}", .{ bodyToken.tag });
+      "expecting '=' or ';', got {}", .{ bodyToken.tag });
   }
 
   fn parseStatements(self: *Self, err: *GenericError) !Ast.NodeList {
@@ -2010,7 +2033,10 @@ const Parser = struct {
     switch (first_token.tag) {
       .kw_local => {
         _ = try self.tokenizer.next(err);
-        index = try self.parseVariableDefinition(try self.tokenizer.next(err), true, err);
+        const var_decl = try self.parseVariableDefinition(try self.tokenizer.next(err), true, err);
+        index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+          .var_decl = var_decl,
+        }});
         const scToken = try self.tokenizer.next(err);
         try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
@@ -2030,6 +2056,7 @@ const Parser = struct {
         const condition = try self.parseExpression(err);
         const r_paren_token = try self.tokenizer.next(err);
         try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
+
         var if_statement = Ast.IfStatement{
           .condition = condition,
           .statement = try self.insertNode(Ast.Payload{ .body = Ast.Body{
@@ -2049,7 +2076,23 @@ const Parser = struct {
         }});
       },
       .kw_while => {
+        _ = try self.tokenizer.next(err);
+        const l_paren_oken = try self.tokenizer.next(err);
+        try self.checkToken(l_paren_oken, Token.Tag.l_paren, err);
+        const condition = try self.parseExpression(err);
+        const r_paren_token = try self.tokenizer.next(err);
+        try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
 
+        const while_statement = Ast.WhileStatement{
+          .condition = condition,
+          .statement = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+            .statement_list = try self.parseStatements(err),
+          } }),
+        };
+
+        index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+          .while_statement = while_statement,
+        }});
       },
       .kw_do => {
 
@@ -2063,9 +2106,16 @@ const Parser = struct {
         const isError = Ast.QType.fromName(self.tokenizer.buffer[first_token.start..first_token.end + 1]);
         if (isError == error.NotAType) {
           // Otherwise it is an expression
-          index = try self.parseExpression(err);
+          const expression = try self.parseExpression(err);
+          index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+            .expression = expression,
+          }});
         } else {
-          index = try self.parseVariableDefinition(first_token, false, err);
+          _ = try self.tokenizer.next(err);
+          const var_decl = try self.parseVariableDefinition(first_token, false, err);
+          index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+            .var_decl = var_decl,
+          }});
         }
         const scToken = try self.tokenizer.next(err);
         try self.checkToken(scToken, Token.Tag.semicolon, err);
@@ -2389,14 +2439,6 @@ test "parser test" {
     \\};
     , &err);
 
-  try testParseWithOutput(
-    \\float (float a) pow2 = {
-    \\  return a * a;
-    \\};
-    ,
-    \\float (float a) pow2 = return a * a;
-    , &err);
-
   try testParse(
     \\float () foo = {
     \\  local float a = 3.14;
@@ -2405,7 +2447,7 @@ test "parser test" {
     \\};
     , &err);
 
-  try testParseWithOutput(
+  try testParse(
     \\float (float numerator, float denominator) div = {
     \\  if (denominator != 0) {
     \\    return numerator / denominator;
@@ -2413,8 +2455,41 @@ test "parser test" {
     \\    error("denominator is zero");
     \\  }
     \\};
+    , &err);
+
+  try testParseWithOutput(
+    \\float (float n) main = {
+    \\  float pi = 0;
+    \\  float i = 0;
+    \\  while (i < n) {
+    \\    if (i % 2 == 0)
+    \\      pi += 1.0 / (2 * i + 1);
+    \\    else
+    \\      pi -= 1.0 / (2 * i + 1);
+    \\    i++;
+    \\  }
+    \\
+    \\  pi *= 4;
+    \\
+    \\  print("Approximation of pi: %.15f\n", pi);
+    \\  return pi;
+    \\};
     ,
-    "float (float numerator, float denominator) div = if (denominator != 0) return numerator / denominator else error(\"denominator is zero\");"
+    \\float (float n) main = {
+    \\  float pi = 0;
+    \\  float i = 0;
+    \\  while (i < n) {
+    \\    if (i % 2 == 0) {
+    \\      pi += 1 / (2 * i + 1);
+    \\    } else {
+    \\      pi -= 1 / (2 * i + 1);
+    \\    }
+    \\    i++;
+    \\  }
+    \\  pi *= 4;
+    \\  print("Approximation of pi: %.15f\n", pi);
+    \\  return pi;
+    \\};
     , &err);
 }
 
