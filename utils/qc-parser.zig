@@ -278,7 +278,7 @@ pub const Tokenizer = struct {
           },
           '.' => {
             result.start = index;
-            if (std.mem.eql(u8, self.buffer[index..index + 3], "...")) {
+            if (self.buffer.len > index + 3 and std.mem.eql(u8, self.buffer[index..index + 3], "...")) {
               result.tag = .elipsis;
               result.end = index + 2;
               return result;
@@ -980,7 +980,7 @@ pub const Ast = struct {
   };
 
   const FieldExpression = struct {
-    object: []const u8,
+    object: Node.Index,
     field: []const u8,
   };
 
@@ -1084,7 +1084,8 @@ pub const Ast = struct {
           };
         },
         .field_expression => |f| {
-          written += (try std.fmt.bufPrint(string[written..], "{s}.{s}", .{ f.object, f.field })).len;
+          written += try nodes[f.object].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], ".{s}", .{ f.field })).len;
         },
         .frame_identifier => |f| {
           written += (try std.fmt.bufPrint(string[written..], "{s}", .{ f.name })).len;
@@ -1755,7 +1756,7 @@ pub const Parser = struct {
           const field = try self.parsePrimary(err);
           primary = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{
             .field_expression = Ast.FieldExpression{
-              .object = try self.getIndentifierName(err, self.nodes[primary], next),
+              .object = primary,
               .field = try self.getIndentifierName(err, self.nodes[field], next),
             },
           }});
@@ -2670,6 +2671,8 @@ test "expression parser test" {
   try testExpression("a &~= 23", &err);
   try testExpression("a = b += 23", &err);
   try testExpression("a = b = 23 * (3 && 9)", &err);
+  try testExpression("a.b", &err);
+  try testExpression("a.b.c", &err);
 }
 
 test "peekAt" {
