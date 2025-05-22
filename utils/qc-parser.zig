@@ -110,6 +110,7 @@ pub const Token = struct {
     kw_else,
     kw_while,
     kw_do,
+    kw_for,
     kw_local,
     kw_return,
   };
@@ -525,7 +526,8 @@ pub const Tokenizer = struct {
           },
           else => {
             const KeywordEnum = enum {
-              @"void", @"float", @"string", @"vector", @"entity", @"if", @"else", @"while", @"do", @"local", @"return", @"0unknown",
+              @"void", @"float", @"string", @"vector", @"entity", @"if", @"else", @"while", @"do",
+              @"for", @"local", @"return", @"0unknown",
             };
             switch (std.meta.stringToEnum(KeywordEnum, self.buffer[result.start..result.end + 1]) orelse .@"0unknown") {
               .@"void", .@"float", .@"string", .@"vector", .@"entity" => result.tag = .type,
@@ -533,6 +535,7 @@ pub const Tokenizer = struct {
               .@"else" => result.tag = .kw_else,
               .@"while" => result.tag = .kw_while,
               .@"do" => result.tag = .kw_do,
+              .@"for" => result.tag = .kw_for,
               .@"local" => result.tag = .kw_local,
               .@"return" => result.tag = .kw_return,
               .@"0unknown" => result.tag = .identifier,
@@ -775,12 +778,20 @@ pub const Ast = struct {
 
   const DoWhileStatement = WhileStatement;
 
+  const ForStatement = struct {
+    initializer: ?Node.Index,
+    condition: Node.Index,
+    loopexpr: ?Node.Index,
+    statement: Node.Index,
+  };
+
   const StatementType = enum {
     var_decl,
     return_statement,
     if_statement,
     while_statement,
     do_while_statement,
+    for_statement,
     expression,
   };
 
@@ -790,6 +801,7 @@ pub const Ast = struct {
     if_statement: IfStatement,
     while_statement: WhileStatement,
     do_while_statement: DoWhileStatement,
+    for_statement: ForStatement,
     expression: Node.Index,
 
     const Self = @This();
@@ -1223,6 +1235,7 @@ pub const Ast = struct {
             .if_statement => (try std.fmt.bufPrint(string[written..], " IF_STATEMENT\n", .{})).len,
             .while_statement => (try std.fmt.bufPrint(string[written..], " WHILE_STATEMENT\n", .{})).len,
             .do_while_statement => (try std.fmt.bufPrint(string[written..], " DO_WHILE_STATEMENT\n", .{})).len,
+            .for_statement => (try std.fmt.bufPrint(string[written..], " FOR_STATEMENT\n", .{})).len,
             .expression => (try std.fmt.bufPrint(string[written..], " EXPRESSION\n", .{})).len,
           };
         },
@@ -1375,6 +1388,20 @@ pub const Ast = struct {
               written += (try std.fmt.bufPrint(string[written..], " while (", .{})).len;
               written += try nodes[w.condition].prettyPrint(nodes, string[written..]);
               written += (try std.fmt.bufPrint(string[written..], ")", .{})).len;
+            },
+            .for_statement => |w| {
+              written += (try std.fmt.bufPrint(string[written..], "for (", .{})).len;
+              if (w.initializer) |initializer| {
+                written += try nodes[initializer].prettyPrint(nodes, string[written..]);
+              }
+              written += (try std.fmt.bufPrint(string[written..], "; ", .{})).len;
+              written += try nodes[w.condition].prettyPrint(nodes, string[written..]);
+              written += (try std.fmt.bufPrint(string[written..], "; ", .{})).len;
+              if (w.loopexpr) |loopexpr| {
+                written += try nodes[loopexpr].prettyPrint(nodes, string[written..]);
+              }
+              written += (try std.fmt.bufPrint(string[written..], ") ", .{})).len;
+              written += try nodes[w.statement].prettyPrintIndent(nodes, string[written..], indent);
             },
             .expression => |e| {
               written += try nodes[e].prettyPrint(nodes, string[written..]);
@@ -2076,6 +2103,7 @@ pub const Parser = struct {
   fn parseStatement(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
     const first_token = try self.tokenizer.peek(err);
     var index: Ast.Node.Index = 0;
+
     switch (first_token.tag) {
       .kw_local => {
         _ = try self.tokenizer.next(err);
@@ -2159,9 +2187,60 @@ pub const Parser = struct {
           .condition = condition,
           .statement = statement,
         };
-
         index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
           .do_while_statement = do_while_statement,
+        }});
+      },
+      .kw_for => {
+        // Not part of the original grammar but seems to be supported by other compiler
+        _ = try self.tokenizer.next(err);
+        const l_paren_token = try self.tokenizer.next(err);
+        try self.checkToken(l_paren_token, Token.Tag.l_paren, err);
+
+        const initializer: ?Ast.Node.Index = b: {
+          var sc_token = try self.tokenizer.peek(err);
+          if (sc_token.tag != Token.Tag.semicolon) {
+            const expression = try self.parseExpression(err);
+            sc_token = try self.tokenizer.next(err);
+            try self.checkToken(sc_token, Token.Tag.semicolon, err);
+            break :b expression;
+          } else {
+            _ = try self.tokenizer.next(err);
+            break :b null;
+          }
+        };
+
+        const condition: Ast.Node.Index = try self.parseExpression(err);
+        {
+          const sc_token = try self.tokenizer.next(err);
+          try self.checkToken(sc_token, Token.Tag.semicolon, err);
+        }
+
+        const loopexpr: ?Ast.Node.Index = b: {
+          var r_paren_token = try self.tokenizer.peek(err);
+          if (r_paren_token.tag != Token.Tag.r_paren) {
+            const expression = try self.parseExpression(err);
+            r_paren_token = try self.tokenizer.next(err);
+            try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
+            break :b expression;
+          } else {
+            _ = try self.tokenizer.next(err);
+            break :b null;
+          }
+        };
+
+        const statement = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+          .statement_list = try self.parseStatements(err),
+        }});
+
+        const for_statement = Ast.ForStatement{
+          .initializer = initializer,
+          .condition = condition,
+          .loopexpr = loopexpr,
+          .statement = statement,
+        };
+        index = try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+          .for_statement = for_statement,
         }});
       },
       .comment => {
@@ -2220,7 +2299,6 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag, er
   var tokenizer = Tokenizer.init(source);
   for (expected_token_tags) |expected_token_tag| {
       const token = try tokenizer.next(err);
-      std.log.debug("token {}", .{ token.tag });
       try std.testing.expectEqual(expected_token_tag, token.tag);
   }
   const last_token = try tokenizer.next(err);
@@ -2619,6 +2697,38 @@ test "parser test" {
     \\  return pi;
     \\};
     , &err);
+
+    try testParse(
+      \\float () bar = {
+      \\  for (i = 0; i < 10; i += 1) {
+      \\    print("%i\n", i);
+      \\  }
+      \\};
+      , &err);
+
+    try testParse(
+      \\float () bar = {
+      \\  for (; i < 10; i += 1) {
+      \\    print("%i\n", i);
+      \\  }
+      \\};
+      , &err);
+
+    try testParse(
+      \\float () bar = {
+      \\  for (i = 0; i < 10; ) {
+      \\    print("%i\n", i);
+      \\  }
+      \\};
+      , &err);
+
+    try testParse(
+      \\float () bar = {
+      \\  for (; i < 10; ) {
+      \\    print("%i\n", i);
+      \\  }
+      \\};
+      , &err);
 }
 
 test "expression parser test" {
