@@ -1560,6 +1560,7 @@ pub const Parser = struct {
 
   // Append an already created node to the node list and return its index
   fn insertNode(self: *Self, payload: Ast.Payload) !Ast.Node.Index {
+    // std.log.debug("insertNode {}", .{ payload });
     const node = Ast.Node{ .payload = payload, .next = 0 };
     if (self.nb_nodes >= self.nodes.len) {
       return error.NodeOutOfCapacity;
@@ -1703,6 +1704,12 @@ pub const Parser = struct {
     switch (token.tag) {
       Token.Tag.float_literal => {
         const value = try std.fmt.parseFloat(f32, self.tokenizer.buffer[token.start..token.end + 1]);
+        // Check if there is a type suffix i.e. 10.0f
+        const type_suffix = try self.tokenizer.peek(err);
+        if (type_suffix.tag == Token.Tag.identifier and self.tokenizer.buffer[type_suffix.start] == 'f') {
+          // just ignore it
+          _ = try self.tokenizer.next(err);
+        }
         return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
           .float_literal = Ast.FloatLiteral{ .value = value } },
         });
@@ -1832,17 +1839,6 @@ pub const Parser = struct {
 
     return primary;
   }
-
-  // Forward Declarations for Parsing Functions (Grammar Hierarchy)
-  // expression ::= (identifier ( ('=' | '+=' | '-=' | '*=' | '/=' | '|=' | '&=' | '&~=' | '%=' | '^=') )* value
-  // value      ::= predicate ( ( '||' | '&&' ) predicate )*
-  // predicate  ::= quantity ( ( '<' | '<=' | '>' | '>=' | '==' | '!=' ) quantity )*
-  // quantity   ::= term ( ( '+' | '-' ) term )*
-  // term       ::= factor ( ( '*' | '/' | '%' ) factor )*
-  // factor     ::= '-' factor | power      // Unary minus applied here
-  // power      ::= postfix ( '**' power )?   // Exponentiation (right-assoc) applied here
-  // postfix    ::= power ( '.' expression | '[' expression ']' | '(' argument_list ')' )*
-  // primary    ::= NUMBER | IDENTIFIER | '(' expression ')'
 
   fn parsePower(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
     const primary = try parsePostfix(self, err);
@@ -2159,6 +2155,7 @@ pub const Parser = struct {
       const new_node = try self.parseStatement(err);
       if (new_node == 0) {
         // ignore comment
+        r_brace = try self.tokenizer.peek(err);
         continue;
       }
       node_list.appendNode(new_node);
@@ -2312,10 +2309,7 @@ pub const Parser = struct {
           .for_statement = for_statement,
         }});
       },
-      .comment => {
-        _ = try self.tokenizer.next(err);
-        // ignore comments
-      },
+      .comment => _ = try self.tokenizer.next(err), // ignore comments
       else => {
         // If the first token is a type, it is a global variable declaration
         const isError = Ast.QType.fromName(self.tokenizer.buffer[first_token.start..first_token.end + 1]);
@@ -2613,6 +2607,7 @@ test "parser test" {
 
   var err = GenericError{};
   try testParse("float f = 3.14;", &err);
+  try testParseWithOutput("float f = 3.14f;", "float f = 3.14;", &err);
   try testParse("float f;", &err);
   try testParse("string s = \"foo\";", &err);
   try testParse("vector v = '1 2 3';", &err);
@@ -2639,6 +2634,16 @@ test "parser test" {
     \\  return 2 + a;
     \\};
     , &err);
+  // comment as the last statement in a function body
+  try testParseWithOutput(
+  \\void () main = {
+  \\  print(ftos(__builtin_exp(hundy)), "\n"); // prints: 22026.465
+  \\};
+  ,
+  \\void () main = {
+  \\  print(ftos(__builtin_exp(hundy)), "\n");
+  \\};
+  , &err);
   // extended comment
   try testParseWithOutput(
     \\float () foo = {
