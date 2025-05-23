@@ -840,6 +840,13 @@ pub const Ast = struct {
     name: []const u8,
   };
 
+  const MethodDecl = struct {
+    return_type: QType,
+    name: []const u8,
+    frame_specifier: ?FrameSpecifier,
+    parameter_list: NodeList,
+  };
+
   const BuiltinDecl = struct {
     name: []const u8,
     return_type: QType,
@@ -982,7 +989,7 @@ pub const Ast = struct {
   };
 
   const FnCall = struct {
-    name: []const u8,
+    callee: Node.Index,
     argument_list: NodeList,
   };
 
@@ -1051,7 +1058,8 @@ pub const Ast = struct {
           written += try nodes[b.rhs].prettyPrint(nodes, string[written..]);
         },
         .fn_call => |fc| {
-          written += (try std.fmt.bufPrint(string[written..], "{s}(", .{ fc.name })).len;
+          written += try nodes[fc.callee].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], "(", .{})).len;
           var paramIt = fc.argument_list.iter();
           var i: usize = 0;
           while (paramIt.next()) |param| : ({ i += 1; }) {
@@ -1117,6 +1125,7 @@ pub const Ast = struct {
     var_decl,
     fn_decl,
     field_decl,
+    method_decl,
     builtin_decl,
     param_decl,
     statement,
@@ -1129,6 +1138,7 @@ pub const Ast = struct {
     var_decl: VarDecl,
     fn_decl: FnDecl,
     field_decl: FieldDecl,
+    method_decl: MethodDecl,
     builtin_decl: BuiltinDecl,
     param_decl: ParamDecl,
     statement: Statement,
@@ -1195,6 +1205,21 @@ pub const Ast = struct {
           var typestr: [255]u8 = undefined;
           const n = try d.type.prettyPrint(&typestr);
           written += try indentPrint(string[written..], indent, "  type {s}\n", .{ typestr[0..n] });
+        },
+        .method_decl => |f| {
+          written += try indentPrint(string[written..], indent, "METHOD_DECL {s}\n", .{ f.name });
+          written += try indentPrint(string[written..], indent, "  return type {}\n", .{ f.return_type });
+          written += try indentPrint(string[written..], indent, "  parameters:\n", .{});
+          var paramIt = f.parameter_list.iter();
+          while (paramIt.next()) |param| {
+            written += try param.debugPrint(nodes, string[written..], indent + 4);
+          }
+          if (f.frame_specifier) |fs| {
+            written += try indentPrint(string[written..], indent, "  frame specifiers:\n", .{});
+            written += try indentPrint(string[written..], indent, "    frame: {s}\n", .{ fs.frame_identifier.name });
+            written += try indentPrint(string[written..], indent, "    next fn: {s}\n", .{ fs.next_function.name });
+          }
+          written += try indentPrint(string[written..], indent, "  frame_specifier:\n", .{});
         },
         .builtin_decl => |d| {
           written += try indentPrint(string[written..], indent, "BUILTIN_DECL {s}\n", .{ d.name });
@@ -1321,6 +1346,20 @@ pub const Ast = struct {
           written += try indentPrint(string[written..], indent, ".", .{});
           written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
+        },
+        .method_decl => |f| {
+          written += try indentPrint(string[written..], indent, ".", .{});
+          written += try f.return_type.prettyPrint(string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
+          var paramIt = f.parameter_list.iter();
+          var i: usize = 0;
+          while (paramIt.next()) |param| : (i += 1) {
+            written += try param.prettyPrintIndent(nodes, string[written..], indent);
+            if (i < f.parameter_list.len() - 1) {
+              written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
+            }
+          }
+          written += (try std.fmt.bufPrint(string[written..], ") {s}", .{ f.name })).len;
         },
         .builtin_decl => |d| {
           written += try indentPrint(string[written..], indent, "", .{});
@@ -1643,21 +1682,40 @@ pub const Parser = struct {
   fn parseFieldDefinition(self: *Self, err: *GenericError) !Ast.Node.Index {
     // discard dot
     _ = try self.tokenizer.next(err);
-    const typeToken = try self.tokenizer.next(err);
-    const identifierToken = try self.tokenizer.next(err);
-    if (identifierToken.tag != Token.Tag.identifier) {
-      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
-        "expecting identifier found {}", .{ identifierToken });
+    const type_token = try self.tokenizer.next(err);
+    const next_token = try self.tokenizer.peek(err);
+    switch (next_token.tag) {
+      Token.Tag.identifier => {
+        _ = try self.tokenizer.next(err);
+        const sc_token = try self.tokenizer.next(err);
+        try self.checkToken(sc_token, Token.Tag.semicolon, err);
+        return self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
+          .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
+          .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
+        }});
+      },
+      Token.Tag.l_paren => {
+        var method_decl = Ast.MethodDecl{
+          .return_type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
+          .name = "",
+          .frame_specifier = null,
+          .parameter_list = Ast.NodeList.init(0, self.nodes),
+        };
+        try self.parseFunctionParameters(&method_decl.parameter_list, err);
+
+        const identifier_token = try self.tokenizer.next(err);
+        try self.checkToken(identifier_token, Token.Tag.identifier, err);
+        method_decl.name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1];
+
+        const sc_token = try self.tokenizer.next(err);
+        try self.checkToken(sc_token, Token.Tag.semicolon, err);
+
+        return  self.insertNode(Ast.Payload{ .method_decl = method_decl });
+      },
+      else => return makeError(ParseError.UnexpectedInput,
+        getLocation(self.tokenizer.buffer, next_token.start), err,
+        "expecting identifier or '(', found {}", .{ next_token }),
     }
-    const scToken = try self.tokenizer.next(err);
-    if (scToken.tag != Token.Tag.semicolon) {
-      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
-        "expecting semicolon found {}", .{ identifierToken });
-    }
-    return self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
-      .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
-      .name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1],
-    }});
   }
 
   fn parsePrimary(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
@@ -1743,15 +1801,15 @@ pub const Parser = struct {
           // pop l_paren
           _ = try self.tokenizer.next(err);
           // Check we got an identifier back
-          var fnCall = Ast.FnCall{
+          var fn_call = Ast.FnCall{
             // For now we suppose that we cannot call an expression, only an identifier
-            .name = try self.getIndentifierName(err, self.nodes[primary], next),
+            .callee = primary,
             .argument_list = Ast.NodeList.init(0, self.nodes),
           };
           var r_paren = try self.tokenizer.peek(err);
           // Parse the parameter declaration until we reach a r_paren
           while (r_paren.tag != Token.Tag.r_paren) {
-            fnCall.argument_list.appendNode(try self.parseExpression(err));
+            fn_call.argument_list.appendNode(try self.parseExpression(err));
             r_paren = try self.tokenizer.peek(err);
             // Ignore the comma but expect it
             if (r_paren.tag == Token.Tag.comma) _ = try self.tokenizer.next(err);
@@ -1759,7 +1817,7 @@ pub const Parser = struct {
           // Discard r_paren
           _ = try self.tokenizer.next(err);
           primary = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{
-            .fn_call = fnCall,
+            .fn_call = fn_call,
           }});
         },
         // Subscript expression (array[i])
@@ -1984,95 +2042,97 @@ pub const Parser = struct {
       // function identifier.
       try self.parseFunctionParameters(&fn_decl.parameter_list, err);
     }
-    const identifierToken = try self.tokenizer.next(err);
-    if (identifierToken.tag != Token.Tag.identifier) {
-      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
-        "expecting function name found {}", .{ identifierToken });
+    const identifier_token = try self.tokenizer.next(err);
+    if (identifier_token.tag != Token.Tag.identifier) {
+      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
+        "expecting function name found {}", .{ identifier_token });
     }
-    fn_decl.name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1];
-    // Now parse the body
-    const bodyToken = try self.tokenizer.peek(err);
-    switch (bodyToken.tag) {
+    fn_decl.name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1];
+    // Deal with weirderies of having equal or not or having parameters after the identifier
+    var body_token = try self.tokenizer.peek(err);
+    switch_start: switch (body_token.tag) {
       Token.Tag.semicolon => {
         // We are dealing with a function declaration
         return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
       },
-      Token.Tag.equal, Token.Tag.l_paren => {
+      Token.Tag.equal => {
         // To support C-style function definition, check if we have equal and pop it
-        if (bodyToken.tag == Token.Tag.equal) {
-          _ = try self.tokenizer.next(err);
-        } else {
-          // This is a C-style funcion definition with the parameters before the
-          // function identifier.
-          l_paren = try self.tokenizer.peek(err);
-          try self.checkToken(l_paren, Token.Tag.l_paren, err);
-          try self.parseFunctionParameters(&fn_decl.parameter_list, err);
-        }
-        var functionContentToken = try self.tokenizer.peek(err);
-        if (functionContentToken.tag == Token.Tag.l_bracket) {
-          // Frame specifier
-          _ = try self.tokenizer.next(err);
-          const frame_identifier = b: {
-            const frame_identifier_token = try self.tokenizer.next(err);
-            try self.checkToken(frame_identifier_token, Token.Tag.frame_identifier, err);
-            const name = self.tokenizer.buffer[frame_identifier_token.start..frame_identifier_token.end + 1];
-            break :b Ast.Identifier{ .name = name };
-          };
-          {
-            const comma_token = try self.tokenizer.next(err);
-            try self.checkToken(comma_token, Token.Tag.comma, err);
-          }
-          const next_function = b: {
-            const next_function_token = try self.tokenizer.next(err);
-            try self.checkToken(next_function_token, Token.Tag.identifier, err);
-            const name = self.tokenizer.buffer[next_function_token.start..next_function_token.end + 1];
-            break :b Ast.Identifier{ .name = name };
-          };
-          const r_bracket_token = try self.tokenizer.next(err);
-          try self.checkToken(r_bracket_token, Token.Tag.r_bracket, err);
-          fn_decl.frame_specifier = Ast.FrameSpecifier{
-            .frame_identifier = frame_identifier,
-            .next_function = next_function,
-          };
-          functionContentToken = try self.tokenizer.peek(err);
-        }
-        switch (functionContentToken.tag) {
-          Token.Tag.builtin_literal => {
-            // This is a builtin declaration
-            const builtinImmediateToken = try self.tokenizer.next(err);
-            const bl = self.tokenizer.buffer[builtinImmediateToken.start + 1..builtinImmediateToken.end + 1];
-            const bDecl = Ast.BuiltinDecl{
-              .return_type = atype,
-              .name = fn_decl.name,
-              .parameter_list = fn_decl.parameter_list,
-              .index = try std.fmt.parseInt(u16, bl, 10),
-            };
-            return self.insertNode(Ast.Payload{ .builtin_decl = bDecl });
-          },
-          Token.Tag.l_brace => {
-            // This is a statement list
-            // We don't pop l_brace here to let parseStatements knows if its a multi or mono
-            // statement situation
-            fn_decl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
-              .statement_list = try self.parseStatements(err),
-            } });
-            return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
-          },
-          else => {
-            // This is an expression
-            const expression = try self.parseExpression(err);
-            fn_decl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
-              .statement_list = Ast.NodeList.init(expression, self.nodes)
-            } });
-            return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
-          }
-        }
+        _ = try self.tokenizer.next(err);
+        continue :switch_start (try self.tokenizer.peek(err)).tag;
+      },
+      Token.Tag.l_paren => {
+        // This is a C-style funcion definition with the parameters before the
+        // function identifier.
+        l_paren = try self.tokenizer.peek(err);
+        try self.checkToken(l_paren, Token.Tag.l_paren, err);
+        try self.parseFunctionParameters(&fn_decl.parameter_list, err);
       },
       else => {},
     }
+    // Parse the potential frame specifier
+    const functionContentToken = try self.tokenizer.peek(err);
+    if (functionContentToken.tag == Token.Tag.l_bracket) {
+      // Frame specifier
+      _ = try self.tokenizer.next(err);
+      const frame_identifier = b: {
+        const frame_identifier_token = try self.tokenizer.next(err);
+        try self.checkToken(frame_identifier_token, Token.Tag.frame_identifier, err);
+        const name = self.tokenizer.buffer[frame_identifier_token.start..frame_identifier_token.end + 1];
+        break :b Ast.Identifier{ .name = name };
+      };
+      {
+        const comma_token = try self.tokenizer.next(err);
+        try self.checkToken(comma_token, Token.Tag.comma, err);
+      }
+      const next_function = b: {
+        const next_function_token = try self.tokenizer.next(err);
+        try self.checkToken(next_function_token, Token.Tag.identifier, err);
+        const name = self.tokenizer.buffer[next_function_token.start..next_function_token.end + 1];
+        break :b Ast.Identifier{ .name = name };
+      };
+      const r_bracket_token = try self.tokenizer.next(err);
+      try self.checkToken(r_bracket_token, Token.Tag.r_bracket, err);
+      fn_decl.frame_specifier = Ast.FrameSpecifier{
+        .frame_identifier = frame_identifier,
+        .next_function = next_function,
+      };
+    }
+    // Now parse the body
+    body_token = try self.tokenizer.peek(err);
+    switch (body_token.tag) {
+      Token.Tag.builtin_literal => {
+        // This is a builtin declaration
+        const builtinImmediateToken = try self.tokenizer.next(err);
+        const bl = self.tokenizer.buffer[builtinImmediateToken.start + 1..builtinImmediateToken.end + 1];
+        const bDecl = Ast.BuiltinDecl{
+          .return_type = atype,
+          .name = fn_decl.name,
+          .parameter_list = fn_decl.parameter_list,
+          .index = try std.fmt.parseInt(u16, bl, 10),
+        };
+        return self.insertNode(Ast.Payload{ .builtin_decl = bDecl });
+      },
+      Token.Tag.l_brace => {
+        // This is a statement list
+        // We don't pop l_brace here to let parseStatements knows if its a multi or mono
+        // statement situation
+        fn_decl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+          .statement_list = try self.parseStatements(err),
+        } });
+        return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
+      },
+      else => {
+        // This is an expression
+        const expression = try self.parseExpression(err);
+        fn_decl.body = try self.insertNode(Ast.Payload{ .body = Ast.Body{
+          .statement_list = Ast.NodeList.init(expression, self.nodes)
+        } });
+        return self.insertNode(Ast.Payload{ .fn_decl = fn_decl });
+      }
+    }
 
-    return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, bodyToken.start), err,
-      "expecting '=' or ';', got {}", .{ bodyToken.tag });
+    return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, body_token.start), err,
+      "expecting '=' or ';', got {}", .{ body_token.tag });
   }
 
   fn parseStatements(self: *Self, err: *GenericError) !Ast.NodeList {
@@ -2550,6 +2610,7 @@ test "parser test" {
   try testParse(".vector vectorField;", &err);
   try testParse("void () foo;", &err);
   try testParse("void () foo = #42;", &err);
+  try testParse(".void () foo;", &err);
   try testParse("void (string s) foo;", &err);
   try testParse("void (string s, ...) foo;", &err);
   try testParse("void () main = {};", &err);
@@ -2585,6 +2646,21 @@ test "parser test" {
     , &err);
 
   try testParse(
+    \\float () foo = {
+    \\  local float a = 3.14;
+    \\  a *= a;
+    \\  return a;
+    \\};
+    , &err);
+
+  // Support missing equal sign
+  try testParseWithOutput(
+    \\float () foo {
+    \\  local float a = 3.14;
+    \\  a *= a;
+    \\  return a;
+    \\};
+    ,
     \\float () foo = {
     \\  local float a = 3.14;
     \\  a *= a;
@@ -2783,6 +2859,7 @@ test "expression parser test" {
   try testExpression("a = b = 23 * (3 && 9)", &err);
   try testExpression("a.b", &err);
   try testExpression("a.b.c", &err);
+  try testExpression("a.b.c()", &err);
 }
 
 test "peekAt" {
