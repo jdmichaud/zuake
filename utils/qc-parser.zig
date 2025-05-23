@@ -86,6 +86,7 @@ pub const Token = struct {
     greater_than,
     less_or_equal,
     greater_or_equal,
+    spaceship, // <=>
     elipsis,
     comment,
     quote,
@@ -361,7 +362,11 @@ pub const Tokenizer = struct {
           },
           '<' => {
             result.start = index;
-            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
+            if (index + 1 < self.buffer.len and self.buffer[index + 1] == '='
+              and index + 2 < self.buffer.len and self.buffer[index + 2] == '>') {
+              result.tag = .spaceship;
+              result.end = index + 2;
+            } else if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
               result.tag = .less_or_equal;
               result.end = index + 1;
             } else {
@@ -634,41 +639,6 @@ pub const Ast = struct {
     NodeListOutOfBound,
   };
 
-  const Precedence = enum(i8) {
-    ASSIGNMENT  = -2,
-    CONDITIONAL = -1,
-    DEFAULT     = 0,
-    LOGICAL_OR  = 1,
-    LOGICAL_AND = 2,
-    RELATIONAL  = 3,
-    ADD         = 4,                     // same as substraction
-    BITWISE_OR  = 5,
-    BITWISE_AND = 6,
-    MULTIPLY    = 7,                 // same as division
-    UNARY       = 8,                    // positive/negative
-    CALL        = 9,
-    FIELD       = 10,
-    SUBSCRIPT   = 11,
-  };
-
-  const operator_precedence = std.StaticStringMap(Precedence).init(.{
-    .{ "+", Precedence.ADD },
-    .{ "-", Precedence.ADD },
-    .{ "*", Precedence.MULTIPLY },
-    .{ "/", Precedence.MULTIPLY },
-    .{ "%", Precedence.MULTIPLY },
-    .{ "||", Precedence.LOGICAL_OR },
-    .{ "&&", Precedence.LOGICAL_AND },
-    .{ "|", Precedence.BITWISE_OR },
-    .{ "&", Precedence.BITWISE_AND },
-    .{ "==", Precedence.RELATIONAL },
-    .{ "!=", Precedence.RELATIONAL },
-    .{ ">", Precedence.RELATIONAL },
-    .{ ">=", Precedence.RELATIONAL },
-    .{ "<=", Precedence.RELATIONAL },
-    .{ "<", Precedence.RELATIONAL },
-  });
-
   const QType = enum {
     Void,
     Float,
@@ -914,6 +884,7 @@ pub const Ast = struct {
     greater_or_equal,
     logical_and,
     logical_or,
+    spaceship, // <=>
 
     fn fromToken(t: Token) !Operator {
       return switch (t.tag) {
@@ -942,6 +913,7 @@ pub const Ast = struct {
         .greater_or_equal => .greater_or_equal,
         .and_ => .logical_and,
         .or_ => .logical_or,
+        .spaceship => .spaceship,
         else => error.UnknownOperator,
       };
     }
@@ -973,6 +945,7 @@ pub const Ast = struct {
         .greater_or_equal => ">=",
         .logical_and => "&&",
         .logical_or => "||",
+        .spaceship => "<=>",
       };
     }
   };
@@ -1933,7 +1906,8 @@ pub const Parser = struct {
     var peek_token = try self.tokenizer.peek(err);
     while (peek_token.tag == Token.Tag.less_than or peek_token.tag == Token.Tag.less_or_equal or
       peek_token.tag == Token.Tag.greater_than or peek_token.tag == Token.Tag.greater_or_equal or
-      peek_token.tag == Token.Tag.double_equal or peek_token.tag == Token.Tag.not_equal) {
+      peek_token.tag == Token.Tag.double_equal or peek_token.tag == Token.Tag.not_equal or
+      peek_token.tag == Token.Tag.spaceship) {
       _ = try self.tokenizer.next(err);
 
       const rhs = try self.parseQuantity(err);
@@ -2847,6 +2821,9 @@ test "expression parser test" {
   try testExpression("$frame12", &err);
   try testExpression("a < b", &err);
   try testExpression("a > b", &err);
+  try testExpression("a >= b", &err);
+  try testExpression("a <= b", &err);
+  try testExpression("a <=> b", &err);
   try testExpression("a == b", &err);
   try testExpression("a != b", &err);
   try testExpression("a && b", &err);
