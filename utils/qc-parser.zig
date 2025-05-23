@@ -87,6 +87,7 @@ pub const Token = struct {
     less_or_equal,
     greater_or_equal,
     spaceship, // <=>
+    power, // **
     elipsis,
     comment,
     quote,
@@ -319,6 +320,9 @@ pub const Tokenizer = struct {
             result.start = index;
             if (index + 1 < self.buffer.len and self.buffer[index + 1] == '=') {
               result.tag = .mul_equal;
+              result.end = index + 1;
+            } else if (index + 1 < self.buffer.len and self.buffer[index + 1] == '*') {
+              result.tag = .power;
               result.end = index + 1;
             } else {
               result.tag = .mul;
@@ -885,6 +889,7 @@ pub const Ast = struct {
     logical_and,
     logical_or,
     spaceship, // <=>
+    power, // **
 
     fn fromToken(t: Token) !Operator {
       return switch (t.tag) {
@@ -914,6 +919,7 @@ pub const Ast = struct {
         .and_ => .logical_and,
         .or_ => .logical_or,
         .spaceship => .spaceship,
+        .power => .power,
         else => error.UnknownOperator,
       };
     }
@@ -946,6 +952,7 @@ pub const Ast = struct {
         .logical_and => "&&",
         .logical_or => "||",
         .spaceship => "<=>",
+        .power => "**",
       };
     }
   };
@@ -1826,6 +1833,33 @@ pub const Parser = struct {
     return primary;
   }
 
+  // Forward Declarations for Parsing Functions (Grammar Hierarchy)
+  // expression ::= (identifier ( ('=' | '+=' | '-=' | '*=' | '/=' | '|=' | '&=' | '&~=' | '%=' | '^=') )* value
+  // value      ::= predicate ( ( '||' | '&&' ) predicate )*
+  // predicate  ::= quantity ( ( '<' | '<=' | '>' | '>=' | '==' | '!=' ) quantity )*
+  // quantity   ::= term ( ( '+' | '-' ) term )*
+  // term       ::= factor ( ( '*' | '/' | '%' ) factor )*
+  // factor     ::= '-' factor | power      // Unary minus applied here
+  // power      ::= postfix ( '**' power )?   // Exponentiation (right-assoc) applied here
+  // postfix    ::= power ( '.' expression | '[' expression ']' | '(' argument_list ')' )*
+  // primary    ::= NUMBER | IDENTIFIER | '(' expression ')'
+
+  fn parsePower(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
+    const primary = try parsePostfix(self, err);
+
+    const power_token = try self.tokenizer.peek(err);
+    if (power_token.tag == Token.Tag.power) {
+      _ = try self.tokenizer.next(err);
+      return try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .binary_op = Ast.BinaryOp {
+        .operator = Ast.Operator.power,
+        .lhs = primary,
+        .rhs = try self.parsePower(err),
+      }}});
+    }
+
+    return primary;
+  }
+
   fn parseFactor(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
     const next = try self.tokenizer.peek(err);
     // Unary
@@ -1840,7 +1874,7 @@ pub const Parser = struct {
       }}});
     }
 
-    const primary = try parsePostfix(self, err);
+    const primary = try parsePower(self, err);
 
     // Update expression (i++, i--)
     const postnext = try self.tokenizer.peek(err);
@@ -1949,7 +1983,8 @@ pub const Parser = struct {
   // term       ::= factor ( ( '*' | '/' | '%' ) factor )*
   // factor     ::= '-' factor | power      // Unary minus applied here
   // power      ::= primary ( '^' power )?   // Exponentiation (right-assoc) applied here
-  // primary    ::= NUMBER | IDENTIFIER | IDENTIFIER '(' [expression] ')' | '(' expression ')'
+  // postfix    ::= power ( '.' expression | '[' expression ']' | '(' argument_list ')' )*
+  // primary    ::= NUMBER | IDENTIFIER | '(' expression ')'
   fn parseExpression(self: *Self, err: *GenericError) !Ast.Node.Index {
     const value = try self.parseValue(err);
 
@@ -2832,8 +2867,10 @@ test "expression parser test" {
   try testExpression("a = 23", &err);
   try testExpression("a /= 23", &err);
   try testExpression("a &~= 23", &err);
+  try testExpression("a ** b", &err);
+  try testExpression("a ** b ** 2", &err);
   try testExpression("a = b += 23", &err);
-  try testExpression("a = b = 23 * (3 && 9)", &err);
+  try testExpression("a = b = 23 * (3 ** 4 && 9)", &err);
   try testExpression("a.b", &err);
   try testExpression("a.b.c", &err);
   try testExpression("a.b.c()", &err);
