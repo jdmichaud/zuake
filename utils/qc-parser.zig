@@ -56,6 +56,7 @@ pub const Token = struct {
 
     dot,
     comma,
+    colon,
     semicolon,
     l_paren,
     r_paren,
@@ -98,6 +99,7 @@ pub const Token = struct {
     or_,
     ampersand,
     pipe,
+    question,
     true,
     false,
 
@@ -243,6 +245,18 @@ pub const Tokenizer = struct {
       switch (state) {
         .start => switch (self.buffer[index]) {
           ' ', '\t', '\n', '\r' => index += 1, // ignore whitespace
+          ':' => {
+            result.tag = .colon;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
+          '?' => {
+            result.tag = .question;
+            result.start = index;
+            result.end = index;
+            return result;
+          },
           '(' => {
             result.tag = .l_paren;
             result.start = index;
@@ -997,6 +1011,12 @@ pub const Ast = struct {
     value: Node.Index,
   };
 
+  const Ternary = struct {
+    condition: Node.Index,
+    true_clause: Node.Index,
+    false_clause: Node.Index,
+  };
+
   const ExpressionType = enum {
     binary_op,
     unary_op,
@@ -1011,6 +1031,7 @@ pub const Ast = struct {
     field_expression,
     frame_identifier,
     assignment,
+    ternary,
   };
 
   const Expression = union(ExpressionType) {
@@ -1027,6 +1048,7 @@ pub const Ast = struct {
     field_expression: FieldExpression,
     frame_identifier: Identifier,
     assignment: Assignment,
+    ternary: Ternary,
 
     pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
       var written: usize = 0;
@@ -1097,7 +1119,14 @@ pub const Ast = struct {
           written += try nodes[a.identifier].prettyPrint(nodes, string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s} ", .{ Ast.Operator.toString(a.operator) })).len;
           written += try nodes[a.value].prettyPrint(nodes, string[written..]);
-        }
+        },
+        .ternary => |t| {
+          written += try nodes[t.condition].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], " ? ", .{})).len;
+          written += try nodes[t.true_clause].prettyPrint(nodes, string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], " : ", .{})).len;
+          written += try nodes[t.false_clause].prettyPrint(nodes, string[written..]);
+        },
       }
       return written;
     }
@@ -1262,15 +1291,6 @@ pub const Ast = struct {
           }
           return written;
         },
-        // .scope => |s| {
-        //   written += (try std.fmt.bufPrint(string[written..], "{{\n", .{})).len;
-        //   for (s.instructions) |param| {
-        //     // TODO: indentation here
-        //     written += try param.prettyPrint(string[written..]);
-        //     written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
-        //   }
-        //   written += (try std.fmt.bufPrint(string[written..], "}}\n", .{})).len;
-        // },
       }
       return written;
     }
@@ -1979,8 +1999,28 @@ pub const Parser = struct {
     return lhs;
   }
 
+  fn parseTernary(self: *Self, err: *GenericError) ParseError!Ast.Node.Index {
+    const value = try self.parseValue(err);
+
+    const operator_token = try self.tokenizer.peek(err);
+    if (operator_token.tag == Token.Tag.question) {
+      _ = try self.tokenizer.next(err);
+      const true_clause = try self.parseExpression(err);
+      const colon_token = try self.tokenizer.next(err);
+      try self.checkToken(colon_token, Token.Tag.colon, err);
+      return try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .ternary = Ast.Ternary {
+        .condition = value,
+        .true_clause = true_clause,
+        .false_clause = try self.parseExpression(err),
+      }}});
+    }
+
+    return value;
+  }
+
   // Forward Declarations for Parsing Functions (Grammar Hierarchy)
-  // expression ::= (identifier ( ('=' | '+=' | '-=' | '*=' | '/=' | '|=' | '&=' | '&~=' | '%=' | '^=') )* value
+  // expression ::= ternary ( ('=' | '+=' | '-=' | '*=' | '/=' | '|=' | '&=' | '&~=' | '%=' | '^=') expression)*
+  // ternary    ::= value ( '?' expression ':' ternary )? // Can't have an assignment in the false clause.
   // value      ::= predicate ( ( '||' | '&&' ) predicate )*
   // predicate  ::= quantity ( ( '<' | '<=' | '>' | '>=' | '==' | '!=' ) quantity )*
   // quantity   ::= term ( ( '+' | '-' ) term )*
@@ -1990,7 +2030,7 @@ pub const Parser = struct {
   // postfix    ::= power ( '.' expression | '[' expression ']' | '(' argument_list ')' )*
   // primary    ::= NUMBER | IDENTIFIER | '(' expression ')'
   fn parseExpression(self: *Self, err: *GenericError) !Ast.Node.Index {
-    const value = try self.parseValue(err);
+    const value = try self.parseTernary(err);
 
     const operator_token = try self.tokenizer.peek(err);
     if (
@@ -2906,6 +2946,9 @@ test "expression parser test" {
   try testExpression("a.b", &err);
   try testExpression("a.b.c", &err);
   try testExpression("a.b.c()", &err);
+  try testExpression("a ? 1 : 2", &err);
+  try testExpression("2 = 0 ? b : 2 ** 3", &err);
+  try testExpression("1 ? a = 0 ? 2 : 3 : 4", &err);
 }
 
 test "peekAt" {
