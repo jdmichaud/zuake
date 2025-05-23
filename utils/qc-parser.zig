@@ -76,6 +76,7 @@ pub const Token = struct {
     modulo_equal,
     caret_equal,
     not,
+    kw_not,
     plus,
     minus,
     mul,
@@ -536,7 +537,7 @@ pub const Tokenizer = struct {
           else => {
             const KeywordEnum = enum {
               @"void", @"float", @"string", @"vector", @"entity", @"if", @"else", @"while", @"do",
-              @"for", @"local", @"return", @"0unknown",
+              @"for", @"local", @"return", @"not", @"0unknown",
             };
             switch (std.meta.stringToEnum(KeywordEnum, self.buffer[result.start..result.end + 1]) orelse .@"0unknown") {
               .@"void", .@"float", .@"string", .@"vector", .@"entity" => result.tag = .type,
@@ -547,6 +548,7 @@ pub const Tokenizer = struct {
               .@"for" => result.tag = .kw_for,
               .@"local" => result.tag = .kw_local,
               .@"return" => result.tag = .kw_return,
+              .@"not" => result.tag = .kw_not,
               .@"0unknown" => result.tag = .identifier,
             }
             return result;
@@ -740,6 +742,7 @@ pub const Ast = struct {
   };
 
   const IfStatement = struct {
+    negated: bool,
     condition: Node.Index,
     statement: Node.Index,
     else_statement: ?Node.Index,
@@ -1386,7 +1389,12 @@ pub const Ast = struct {
               written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
             },
             .if_statement => |ifs| {
-              written += (try std.fmt.bufPrint(string[written..], "if (", .{})).len;
+              written += (try std.fmt.bufPrint(string[written..], "if ", .{})).len;
+              if (ifs.negated) {
+                written += (try std.fmt.bufPrint(string[written..], "not (", .{})).len;
+              } else {
+                written += (try std.fmt.bufPrint(string[written..], "(", .{})).len;
+              }
               written += try nodes[ifs.condition].prettyPrint(nodes, string[written..]);
               written += (try std.fmt.bufPrint(string[written..], ") ", .{})).len;
               written += try nodes[ifs.statement].prettyPrintIndent(nodes, string[written..], indent);
@@ -2191,6 +2199,11 @@ pub const Parser = struct {
       },
       .kw_if => {
         _ = try self.tokenizer.next(err);
+        const not_token = try self.tokenizer.peek(err);
+        const negated = not_token.tag == Token.Tag.kw_not;
+        if (negated) {
+          _ = try self.tokenizer.next(err);
+        }
         const l_paren_token = try self.tokenizer.next(err);
         try self.checkToken(l_paren_token, Token.Tag.l_paren, err);
         const condition = try self.parseExpression(err);
@@ -2198,6 +2211,7 @@ pub const Parser = struct {
         try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
 
         var if_statement = Ast.IfStatement{
+          .negated = negated,
           .condition = condition,
           .statement = try self.insertNode(Ast.Payload{ .body = Ast.Body{
             .statement_list = try self.parseStatements(err),
@@ -2718,6 +2732,17 @@ test "parser test" {
     \\};
     , &err);
 
+  // Hexen's not operator
+  try testParse(
+    \\float (float numerator, float denominator) div = {
+    \\  if not (denominator != 0) {
+    \\    return numerator / denominator;
+    \\  } else {
+    \\    error("denominator is zero");
+    \\  }
+    \\};
+    , &err);
+
   try testParseWithOutput(
     \\float (float n) main = {
     \\  float pi = 0;
@@ -2868,6 +2893,8 @@ test "expression parser test" {
   try testExpression("a != b", &err);
   try testExpression("a && b", &err);
   try testExpression("a || b", &err);
+  try testExpression("!a", &err);
+  try testExpression("b || !a", &err);
   try testExpression("1 < 2 && 3 >= 2 || 0", &err);
   try testExpression("a = 23", &err);
   try testExpression("a /= 23", &err);
