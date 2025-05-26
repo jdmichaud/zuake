@@ -725,6 +725,7 @@ pub const Ast = struct {
     name: []const u8,
     value: Node.Index,
     local: bool,
+    multiplicity: Node.Index,
   };
 
   const ParamType = enum {
@@ -829,6 +830,7 @@ pub const Ast = struct {
   const FieldDecl = struct {
     type: QType,
     name: []const u8,
+    multiplicity: Node.Index,
   };
 
   const MethodDecl = struct {
@@ -991,7 +993,7 @@ pub const Ast = struct {
   };
 
   const Subscript = struct {
-    name: []const u8,
+    base: Node.Index,
     index_expression: Node.Index,
   };
 
@@ -1095,7 +1097,7 @@ pub const Ast = struct {
           written += (try std.fmt.bufPrint(string[written..], ")", .{})).len;
         },
         .subscript_expression => |e| {
-          written += (try std.fmt.bufPrint(string[written..], "{s}", .{ e.name })).len;
+          written += try nodes[e.base].prettyPrint(nodes, string[written..]);
           written += (try std.fmt.bufPrint(string[written..], "[", .{})).len;
           written += try nodes[e.index_expression].prettyPrint(nodes, string[written..]);
           written += (try std.fmt.bufPrint(string[written..], "]", .{})).len;
@@ -1184,9 +1186,10 @@ pub const Ast = struct {
           written += try indentPrint(string[written..], indent, "VAR_DECL {s}\n", .{ d.name });
           var typestr: [255]u8 = undefined;
           const n = try d.type.prettyPrint(&typestr);
-          written += try indentPrint(string[written..], indent, "  type {s}\n", .{ typestr[0..n] });
-          written += try indentPrint(string[written..], indent, "  local {}\n", .{ d.local });
-          written += try indentPrint(string[written..], indent, "  value {}\n", .{ d.value });
+          written += try indentPrint(string[written..], indent, "  type         {s}\n", .{ typestr[0..n] });
+          written += try indentPrint(string[written..], indent, "  local        {}\n", .{ d.local });
+          written += try indentPrint(string[written..], indent, "  value        {}\n", .{ d.value });
+          written += try indentPrint(string[written..], indent, "  multiplicity {?}\n", .{ d.multiplicity });
         },
         .fn_decl => |f| {
           written += try indentPrint(string[written..], indent, "FN_DECL {s}\n", .{ f.name });
@@ -1246,7 +1249,7 @@ pub const Ast = struct {
             },
             .subscript_expression => |se| {
               written += try indentPrint(string[written..], indent, "SUBSCRIPT_EXPRESSION\n", .{});
-              written += try indentPrint(string[written..], indent, "  name {s}\n", .{ se.name });
+              written += try indentPrint(string[written..], indent, "  base {}\n", .{ se.base });
               written += try indentPrint(string[written..], indent, "  index:\n", .{});
               written += try nodes[se.index_expression].debugPrint(nodes, string[written..], indent + 4);
             },
@@ -1314,6 +1317,11 @@ pub const Ast = struct {
             written += (try std.fmt.bufPrint(string[written..], " = ", .{})).len;
             written += try value.prettyPrint(nodes, string[written..]);
           }
+          if (getNode(nodes, d.multiplicity)) |multiplicity| {
+            written += (try std.fmt.bufPrint(string[written..], "[", .{})).len;
+            written += try multiplicity.prettyPrint(nodes, string[written..]);
+            written += (try std.fmt.bufPrint(string[written..], "]", .{})).len;
+          }
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .fn_decl => |f| {
@@ -1351,6 +1359,11 @@ pub const Ast = struct {
           written += try indentPrint(string[written..], indent, ".", .{});
           written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
+          if (getNode(nodes, d.multiplicity)) |multiplicity| {
+            written += (try std.fmt.bufPrint(string[written..], "[", .{})).len;
+            written += try multiplicity.prettyPrint(nodes, string[written..]);
+            written += (try std.fmt.bufPrint(string[written..], "]", .{})).len;
+          }
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
         },
         .method_decl => |f| {
@@ -1677,19 +1690,6 @@ pub const Parser = struct {
     const eql_token = try self.tokenizer.peek(err);
     var value: Ast.Node.Index = 0;
     _ = b: switch (eql_token.tag) {
-      Token.Tag.comma => {
-        declarations.appendNode(try self.insertNode(Ast.Payload{ .var_decl = Ast.VarDecl{
-          .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
-          .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
-          .value = value,
-          .local = vtype == .local,
-        }}));
-        value = 0;
-        // discard the comma
-        _ = try self.tokenizer.next(err);
-        identifier_token = try self.tokenizer.next(err);
-        continue :b (try self.tokenizer.peek(err)).tag;
-      },
       Token.Tag.equal => {
         _ = try self.tokenizer.next(err);
         value = try self.parseExpression(err);
@@ -1701,9 +1701,37 @@ pub const Parser = struct {
           .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
           .value = value,
           .local = vtype == .local,
+          .multiplicity = 0,
         }}));
         value = 0;
         return;
+      },
+      Token.Tag.comma => {
+        declarations.appendNode(try self.insertNode(Ast.Payload{ .var_decl = Ast.VarDecl{
+          .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
+          .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
+          .value = value,
+          .local = vtype == .local,
+          .multiplicity = 0,
+        }}));
+        value = 0;
+        // discard the comma
+        _ = try self.tokenizer.next(err);
+        identifier_token = try self.tokenizer.next(err);
+        continue :b (try self.tokenizer.peek(err)).tag;
+      },
+      Token.Tag.l_bracket => {
+        // static array definition
+        _ = try self.tokenizer.next(err);
+        const multiplicity = try self.parseExpression(err);
+        declarations.appendNode(try self.insertNode(Ast.Payload{ .var_decl = Ast.VarDecl{
+          .type = try Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]),
+          .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
+          .value = 0,
+          .local = vtype == .local,
+          .multiplicity = multiplicity,
+        }}));
+        try self.checkToken(try self.tokenizer.next(err), Token.Tag.r_bracket, err);
       },
       else => return makeError(ParseError.UnexpectedInput,
         getLocation(self.tokenizer.buffer, identifier_token.start), err,
@@ -1720,11 +1748,29 @@ pub const Parser = struct {
       Token.Tag.identifier => {
         _ = try self.tokenizer.next(err);
         const sc_token = try self.tokenizer.next(err);
-        try self.checkToken(sc_token, Token.Tag.semicolon, err);
-        return self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
-          .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
-          .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
-        }});
+        switch (sc_token.tag) {
+          Token.Tag.semicolon => {
+            return self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
+              .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
+              .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
+              .multiplicity = 0,
+            }});
+          },
+          Token.Tag.l_bracket => {
+            const multiplicity = try self.parseExpression(err);
+            const node = self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
+              .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
+              .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
+              .multiplicity = multiplicity,
+            }});
+            try self.checkToken(try self.tokenizer.next(err), Token.Tag.r_bracket, err);
+            try self.checkToken(try self.tokenizer.next(err), Token.Tag.semicolon, err);
+            return node;
+          },
+          else => return makeError(ParseError.UnexpectedInput,
+            getLocation(self.tokenizer.buffer, next_token.start), err,
+            "expecting ';' or '[', found {}", .{ next_token }),
+        }
       },
       Token.Tag.l_paren => {
         var method_decl = Ast.MethodDecl{
@@ -1863,8 +1909,7 @@ pub const Parser = struct {
           // pop l_bracket
           _ = try self.tokenizer.next(err);
           const subscriptExpr = Ast.Subscript{
-            // For now we suppose that we cannot subscript an expression, only an identifier
-            .name = try self.getIndentifierName(err, self.nodes[primary], next),
+            .base = primary,
             .index_expression = try self.parseExpression(err),
           };
           const r_bracket = try self.tokenizer.next(err);
@@ -2698,6 +2743,10 @@ test "parser test" {
   try testParse("void (float f, vector v) main = {};", &err);
   try testParse("void (string str, ...) print = #99;", &err);
   try testParse("void () enf_die1 = [$death1, enf_die2] {};", &err);
+  // Static array
+  try testParse("float flds[6];", &err);
+  try testParse(".float flds[6];", &err);
+
   try testParseWithOutput(
     \\float () foo = {
     \\  // Some comment
@@ -2945,6 +2994,7 @@ test "expression parser test" {
   try testExpression("-i++", &err);
   try testExpression("array[x]++", &err);
   try testExpression("object.field", &err);
+  try testExpression("e.flds[0] = 1000", &err);
   try testExpression("$frame12", &err);
   try testExpression("a < b", &err);
   try testExpression("a > b", &err);
