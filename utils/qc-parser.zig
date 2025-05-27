@@ -836,6 +836,10 @@ pub const Ast = struct {
     multiplicity: Node.Index,
   };
 
+  const PtrDecl = struct {
+    pointee: Node.Index,
+  };
+
   const MethodDecl = struct {
     return_type: QType,
     name: []const u8,
@@ -1151,6 +1155,7 @@ pub const Ast = struct {
     var_decl,
     fn_decl,
     field_decl,
+    ptr_decl,
     method_decl,
     builtin_decl,
     param_decl,
@@ -1164,6 +1169,7 @@ pub const Ast = struct {
     var_decl: VarDecl,
     fn_decl: FnDecl,
     field_decl: FieldDecl,
+    ptr_decl: PtrDecl,
     method_decl: MethodDecl,
     builtin_decl: BuiltinDecl,
     param_decl: ParamDecl,
@@ -1233,6 +1239,10 @@ pub const Ast = struct {
           var typestr: [255]u8 = undefined;
           const n = try d.type.prettyPrint(&typestr);
           written += try indentPrint(string[written..], indent, "  type {s}\n", .{ typestr[0..n] });
+        },
+        .ptr_decl => |p| {
+          written += try indentPrint(string[written..], indent, "PTR_DECL\n", .{});
+          written += try nodes[p.pointee].debugPrint(nodes, string[written..], indent + 4);
         },
         .method_decl => |f| {
           written += try indentPrint(string[written..], indent, "METHOD_DECL {s}\n", .{ f.name });
@@ -1384,6 +1394,10 @@ pub const Ast = struct {
             written += (try std.fmt.bufPrint(string[written..], "]", .{})).len;
           }
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+        },
+        .ptr_decl => |p| {
+          written += try indentPrint(string[written..], indent, ".", .{});
+          written += try nodes[p.pointee].prettyPrint(nodes, string[written..]);
         },
         .method_decl => |f| {
           written += try indentPrint(string[written..], indent, ".", .{});
@@ -1765,7 +1779,16 @@ pub const Parser = struct {
   fn parseFieldDefinition(self: *Self, err: *GenericError) !Ast.Node.Index {
     // discard dot
     _ = try self.tokenizer.next(err);
-    const type_token = try self.tokenizer.next(err);
+    const type_token = try self.tokenizer.peek(err);
+
+    // To handle field pointers like `..string ps`
+    if (type_token.tag == Token.Tag.dot) {
+      return self.insertNode(Ast.Payload{ .ptr_decl = Ast.PtrDecl{
+        .pointee = try self.parseFieldDefinition(err),
+      }});
+    }
+
+    _ = try self.tokenizer.next(err);
     const next_token = try self.tokenizer.peek(err);
     switch (next_token.tag) {
       Token.Tag.identifier => {
@@ -2794,6 +2817,8 @@ test "parser test" {
   try testParse("void (float f, vector v) main = {};", &err);
   try testParse("void (string str, ...) print = #99;", &err);
   try testParse("void () enf_die1 = [$death1, enf_die2] {};", &err);
+  // Field pointer
+  try testParse("..string ps;", &err);
   // Static array
   try testParse("float flds[6];", &err);
   try testParse(".float flds[6];", &err);
