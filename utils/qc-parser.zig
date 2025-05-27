@@ -1025,7 +1025,7 @@ pub const Ast = struct {
 
   const FieldExpression = struct {
     object: Node.Index,
-    field: []const u8,
+    field: Node.Index,
   };
 
   const UpdateExpression = struct {
@@ -1138,7 +1138,8 @@ pub const Ast = struct {
         },
         .field_expression => |f| {
           written += try nodes[f.object].prettyPrint(nodes, string[written..]);
-          written += (try std.fmt.bufPrint(string[written..], ".{s}", .{ f.field })).len;
+          written += (try std.fmt.bufPrint(string[written..], ".", .{})).len;
+          written += try nodes[f.field].prettyPrint(nodes, string[written..]);
         },
         .frame_identifier => |f| {
           written += (try std.fmt.bufPrint(string[written..], "{s}", .{ f.name })).len;
@@ -1977,11 +1978,10 @@ pub const Parser = struct {
         // Field access (foo.bar)
         Token.Tag.dot => {
           _ = try self.tokenizer.next(err);
-          const field = try self.parsePrimary(err);
           primary = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{
             .field_expression = Ast.FieldExpression{
               .object = primary,
-              .field = try self.getIndentifierName(err, self.nodes[field], next),
+              .field = try self.parseExpression(err),
             },
           }});
         },
@@ -3109,6 +3109,8 @@ test "expression parser test" {
   try testExpression("-i++", &err);
   try testExpression("array[x]++", &err);
   try testExpression("object.field", &err);
+  // For field pointers
+  try testExpression("object.(foo.field)", &err);
   try testExpression("e.flds[0] = 1000", &err);
   try testExpression("$frame12", &err);
   try testExpression("a < b", &err);

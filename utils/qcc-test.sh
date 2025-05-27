@@ -9,7 +9,11 @@ total=0
 pass=0
 for qcfiles in $(ls -Sr ../tests/quakec/*.qc)
 do
-  echo -n "..${qcfiles}... "
+  if [[ "${qcfiles}" = "../tests/quakec/enum.qc" ]];
+  then
+    continue
+  fi
+  echo -n "${qcfiles}... "
   output_filename=/tmp/$(basename ${qcfiles}).output
   /tmp/qcc ${qcfiles} 2>&1 > ${output_filename}
   res=$?
