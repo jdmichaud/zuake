@@ -117,6 +117,7 @@ pub const Token = struct {
     kw_do,
     kw_for,
     kw_local,
+    kw_const,
     kw_return,
   };
 };
@@ -551,7 +552,7 @@ pub const Tokenizer = struct {
           else => {
             const KeywordEnum = enum {
               @"void", @"float", @"string", @"vector", @"entity", @"if", @"else", @"while", @"do",
-              @"for", @"local", @"return", @"not", @"0unknown",
+              @"for", @"local", @"const", @"return", @"not", @"0unknown",
             };
             switch (std.meta.stringToEnum(KeywordEnum, self.buffer[result.start..result.end + 1]) orelse .@"0unknown") {
               .@"void", .@"float", .@"string", .@"vector", .@"entity" => result.tag = .type,
@@ -561,6 +562,7 @@ pub const Tokenizer = struct {
               .@"do" => result.tag = .kw_do,
               .@"for" => result.tag = .kw_for,
               .@"local" => result.tag = .kw_local,
+              .@"const" => result.tag = .kw_const,
               .@"return" => result.tag = .kw_return,
               .@"not" => result.tag = .kw_not,
               .@"0unknown" => result.tag = .identifier,
@@ -725,6 +727,7 @@ pub const Ast = struct {
     name: []const u8,
     value: Node.Index,
     local: bool,
+    @"const": bool,
     multiplicity: Node.Index,
   };
 
@@ -909,6 +912,9 @@ pub const Ast = struct {
     logical_or,
     spaceship, // <=>
     power, // **
+    bitwise_xor,
+    bitwise_or,
+    bitwise_and,
 
     fn fromToken(t: Token) !Operator {
       return switch (t.tag) {
@@ -939,6 +945,9 @@ pub const Ast = struct {
         .or_ => .logical_or,
         .spaceship => .spaceship,
         .power => .power,
+        .caret => .bitwise_xor,
+        .pipe => .bitwise_or,
+        .ampersand => .bitwise_and,
         else => error.UnknownOperator,
       };
     }
@@ -972,6 +981,9 @@ pub const Ast = struct {
         .logical_or => "||",
         .spaceship => "<=>",
         .power => "**",
+        .bitwise_xor => "^",
+        .bitwise_or => "|",
+        .bitwise_and => "&",
       };
     }
   };
@@ -1188,6 +1200,7 @@ pub const Ast = struct {
           const n = try d.type.prettyPrint(&typestr);
           written += try indentPrint(string[written..], indent, "  type         {s}\n", .{ typestr[0..n] });
           written += try indentPrint(string[written..], indent, "  local        {}\n", .{ d.local });
+          written += try indentPrint(string[written..], indent, "  const        {}\n", .{ d.@"const" });
           written += try indentPrint(string[written..], indent, "  value        {}\n", .{ d.value });
           written += try indentPrint(string[written..], indent, "  multiplicity {?}\n", .{ d.multiplicity });
         },
@@ -1306,10 +1319,16 @@ pub const Ast = struct {
       var written: usize = 0;
       switch (self.payload) {
         .var_decl => |d| {
+          written += try indentPrint(string[written..], indent, "", .{});
           if (d.local) {
-            written += try indentPrint(string[written..], indent, "local ", .{});
+            written += (try std.fmt.bufPrint(string[written..], "local ", .{})).len;
           } else {
-            written += try indentPrint(string[written..], indent, "", .{});
+            written += (try std.fmt.bufPrint(string[written..], "", .{})).len;
+          }
+          if (d.@"const") {
+            written += (try std.fmt.bufPrint(string[written..], "const ", .{})).len;
+          } else {
+            written += (try std.fmt.bufPrint(string[written..], "", .{})).len;
           }
           written += try d.type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " {s}", .{ d.name })).len;
@@ -1418,8 +1437,9 @@ pub const Ast = struct {
           written += try indentPrint(string[written..], indent, "", .{});
           switch (s) {
             .var_decl => |v| {
-              written += try nodes[v].prettyPrint(nodes, string[written..]);
-              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+              _ = v;
+              // written += try nodes[v].prettyPrint(nodes, string[written..]);
+              // written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
             },
             .return_statement => |expr| {
               written += (try std.fmt.bufPrint(string[written..], "return ", .{})).len;
@@ -1661,7 +1681,7 @@ pub const Parser = struct {
           declarations.appendNode(try self.parseFunctionDefinition(typeToken, err));
           return;
         }
-        try self.parseVariableDefinition(declarations, typeToken, .nonlocal, err);
+        try self.parseVariableDefinition(declarations, typeToken, .nonlocal, false, err);
         const scToken = try self.tokenizer.next(err);
         try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
@@ -1681,7 +1701,7 @@ pub const Parser = struct {
   }
 
   fn parseVariableDefinition(self: *Self, declarations: *Ast.NodeList, typeToken: Token,
-    vtype: VariableType, err: *GenericError) !void {
+    vtype: VariableType, @"const": bool, err: *GenericError) !void {
     var identifier_token = try self.tokenizer.next(err);
     if (identifier_token.tag != Token.Tag.identifier) {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
@@ -1701,6 +1721,7 @@ pub const Parser = struct {
           .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
           .value = value,
           .local = vtype == .local,
+          .@"const" = @"const",
           .multiplicity = 0,
         }}));
         value = 0;
@@ -1712,6 +1733,7 @@ pub const Parser = struct {
           .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
           .value = value,
           .local = vtype == .local,
+          .@"const" = @"const",
           .multiplicity = 0,
         }}));
         value = 0;
@@ -1729,6 +1751,7 @@ pub const Parser = struct {
           .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
           .value = 0,
           .local = vtype == .local,
+          .@"const" = @"const",
           .multiplicity = multiplicity,
         }}));
         try self.checkToken(try self.tokenizer.next(err), Token.Tag.r_bracket, err);
@@ -2048,14 +2071,34 @@ pub const Parser = struct {
     return lhs;
   }
 
-  fn parseValue(self: *Self, err: *GenericError) !Ast.Node.Index {
+  fn parseOperand(self: *Self, err: *GenericError) !Ast.Node.Index {
     var lhs = try self.parsePredicate(err);
+
+    var peek_token = try self.tokenizer.peek(err);
+    while (peek_token.tag == Token.Tag.caret or peek_token.tag == Token.Tag.pipe
+      or peek_token.tag == Token.Tag.ampersand) {
+      _ = try self.tokenizer.next(err);
+
+      const rhs = try self.parsePredicate(err);
+      lhs = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .binary_op = Ast.BinaryOp {
+        .operator = try Ast.Operator.fromToken(peek_token),
+        .lhs = lhs,
+        .rhs = rhs,
+      }}});
+      peek_token = try self.tokenizer.peek(err);
+    }
+
+    return lhs;
+  }
+
+  fn parseValue(self: *Self, err: *GenericError) !Ast.Node.Index {
+    var lhs = try self.parseOperand(err);
 
     var peek_token = try self.tokenizer.peek(err);
     while (peek_token.tag == Token.Tag.and_ or peek_token.tag == Token.Tag.or_) {
       _ = try self.tokenizer.next(err);
 
-      const rhs = try self.parsePredicate(err);
+      const rhs = try self.parseOperand(err);
       lhs = try self.insertNode(Ast.Payload{ .expression = Ast.Expression{ .binary_op = Ast.BinaryOp {
         .operator = try Ast.Operator.fromToken(peek_token),
         .lhs = lhs,
@@ -2089,7 +2132,8 @@ pub const Parser = struct {
   // Forward Declarations for Parsing Functions (Grammar Hierarchy)
   // expression ::= ternary ( ('=' | '+=' | '-=' | '*=' | '/=' | '|=' | '&=' | '&~=' | '%=' | '^=') expression)*
   // ternary    ::= value ( '?' expression ':' ternary )? // Can't have an assignment in the false clause.
-  // value      ::= predicate ( ( '||' | '&&' ) predicate )*
+  // value      ::= operand ( ( '||' | '&&' ) operand )*
+  // operand    ::= predicate ( ( '||' | '&&' ) predicate )*
   // predicate  ::= quantity ( ( '<' | '<=' | '>' | '>=' | '==' | '!=' ) quantity )*
   // quantity   ::= term ( ( '+' | '-' ) term )*
   // term       ::= factor ( ( '*' | '/' | '%' ) factor )*
@@ -2277,14 +2321,21 @@ pub const Parser = struct {
   }
 
   fn parseStatement(self: *Self, statement_list: *Ast.NodeList, err: *GenericError) ParseError!void {
-    const first_token = try self.tokenizer.peek(err);
-
-    switch (first_token.tag) {
+    var local: VariableType = .nonlocal;
+    var @"const" = false;
+    var first_token = try self.tokenizer.peek(err);
+    statement_block: switch (first_token.tag) {
       .kw_local => {
         _ = try self.tokenizer.next(err);
-        try self.parseVariableDefinition(statement_list, try self.tokenizer.next(err), .local, err);
-        const scToken = try self.tokenizer.next(err);
-        try self.checkToken(scToken, Token.Tag.semicolon, err);
+        local = .local;
+        first_token = try self.tokenizer.peek(err);
+        continue :statement_block first_token.tag;
+      },
+      .kw_const => {
+        _ = try self.tokenizer.next(err);
+        @"const" = true;
+        first_token = try self.tokenizer.peek(err);
+        continue :statement_block first_token.tag;
       },
       .kw_return => {
         _ = try self.tokenizer.next(err);
@@ -2433,7 +2484,7 @@ pub const Parser = struct {
           }}));
         } else {
           _ = try self.tokenizer.next(err);
-          try self.parseVariableDefinition(statement_list, first_token, .nonlocal, err);
+          try self.parseVariableDefinition(statement_list, first_token, local, @"const", err);
         }
         const scToken = try self.tokenizer.next(err);
         try self.checkToken(scToken, Token.Tag.semicolon, err);
@@ -2759,6 +2810,18 @@ test "parser test" {
     \\  return 2 + a;
     \\};
     , &err);
+  try testParse(
+    \\float () foo = {
+    \\  const float a = 3.14;
+    \\  return 2 + a;
+    \\};
+    , &err);
+  try testParse(
+    \\float () foo = {
+    \\  local const float a = 3.14;
+    \\  return 2 + a;
+    \\};
+    , &err);
   // comment as the last statement in a function body
   try testParseWithOutput(
     \\void () main = {
@@ -3005,6 +3068,9 @@ test "expression parser test" {
   try testExpression("a != b", &err);
   try testExpression("a && b", &err);
   try testExpression("a || b", &err);
+  try testExpression("a ^ b", &err);
+  try testExpression("a | b", &err);
+  try testExpression("a & b", &err);
   try testExpression("!a", &err);
   try testExpression("b || !a", &err);
   try testExpression("1 < 2 && 3 >= 2 || 0", &err);
