@@ -733,16 +733,21 @@ pub const Ast = struct {
 
   const ParamType = enum {
     elipsis,
-    declaration,
+    variable,
+    field,
   };
 
   const ParamDecl = struct {
     param: union(ParamType) {
       elipsis: void,
-      declaration: struct {
+      variable: struct {
         type: QType,
         name: []const u8,
       },
+      field: struct {
+        type: QType,
+        name: []const u8,
+      }
     },
 
     const Self = @This();
@@ -751,8 +756,13 @@ pub const Ast = struct {
         .elipsis => {
           return (try std.fmt.bufPrint(string, "...", .{})).len;
         },
-        .declaration => |param| {
+        .variable => |param| {
           const written = try param.type.prettyPrint(string);
+          return written + (try std.fmt.bufPrint(string[written..], " {s}", .{ param.name })).len;
+        },
+        .field => |param| {
+          var written = (try std.fmt.bufPrint(string, ".", .{})).len;
+          written += try param.type.prettyPrint(string[written..]);
           return written + (try std.fmt.bufPrint(string[written..], " {s}", .{ param.name })).len;
         },
       }
@@ -2516,27 +2526,38 @@ pub const Parser = struct {
   }
 
   fn parseParamDeclaration(self: *Self, err: *GenericError) !Ast.Node.Index {
-    const typeToken = try self.tokenizer.next(err);
+    var typeToken = try self.tokenizer.next(err);
     if (typeToken.tag == Token.Tag.elipsis) {
       return self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
         .param = .elipsis,
       } });
     }
+    const is_field = typeToken.tag == Token.Tag.dot;
+    if (is_field) {
+      typeToken = try self.tokenizer.next(err);
+    }
     const atype = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]) catch |e| {
       return makeError(e, getLocation(self.tokenizer.buffer, typeToken.start), err,
         "Expecting a type got {s}", .{ self.tokenizer.buffer[typeToken.start..typeToken.end + 1] });
     };
-    const identifierToken = try self.tokenizer.next(err);
-    if (identifierToken.tag != Token.Tag.identifier) {
-      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifierToken.start), err,
-        "expecting identifier found {}", .{ identifierToken });
+    const identifier_token = try self.tokenizer.next(err);
+    if (identifier_token.tag != Token.Tag.identifier) {
+      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
+        "expecting identifier found {}", .{ identifier_token });
     }
-    const name = self.tokenizer.buffer[identifierToken.start..identifierToken.end + 1];
-    return self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
-      .param = .{
-        .declaration = .{ .type = atype, .name = name },
-      }
-    } });
+    const name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1];
+    return if (is_field)
+      self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
+        .param = .{
+          .field = .{ .type = atype, .name = name },
+        }
+      } })
+    else
+      self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
+        .param = .{
+          .variable = .{ .type = atype, .name = name },
+        }
+      } });
   }
 };
 
@@ -3012,37 +3033,43 @@ test "parser test" {
     \\};
     , &err);
 
-    try testParse(
-      \\float () bar = {
-      \\  for (i = 0; i < 10; i += 1) {
-      \\    print("%i\n", i);
-      \\  }
-      \\};
-      , &err);
+  try testParse(
+    \\float () bar = {
+    \\  for (i = 0; i < 10; i += 1) {
+    \\    print("%i\n", i);
+    \\  }
+    \\};
+    , &err);
 
-    try testParse(
-      \\float () bar = {
-      \\  for (; i < 10; i += 1) {
-      \\    print("%i\n", i);
-      \\  }
-      \\};
-      , &err);
+  try testParse(
+    \\float () bar = {
+    \\  for (; i < 10; i += 1) {
+    \\    print("%i\n", i);
+    \\  }
+    \\};
+    , &err);
 
-    try testParse(
-      \\float () bar = {
-      \\  for (i = 0; i < 10; ) {
-      \\    print("%i\n", i);
-      \\  }
-      \\};
-      , &err);
+  try testParse(
+    \\float () bar = {
+    \\  for (i = 0; i < 10; ) {
+    \\    print("%i\n", i);
+    \\  }
+    \\};
+    , &err);
 
-    try testParse(
-      \\float () bar = {
-      \\  for (; i < 10; ) {
-      \\    print("%i\n", i);
-      \\  }
-      \\};
-      , &err);
+  try testParse(
+    \\float () bar = {
+    \\  for (; i < 10; ) {
+    \\    print("%i\n", i);
+    \\  }
+    \\};
+    , &err);
+
+  try testParse(
+    \\void (entity e, .string s) callout = {
+    \\  print(e.s, "\n");
+    \\};
+    , &err);
 }
 
 test "expression parser test" {
