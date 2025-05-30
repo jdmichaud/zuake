@@ -2396,14 +2396,26 @@ pub const Parser = struct {
     const l_brace = try self.tokenizer.peek(err);
     if (l_brace.tag != Token.Tag.l_brace) {
       // There is only one statment (no braces)
-      try self.parseStatement(&node_list, err);
+      // As inline comment will be parsed here but do not generate statement
+      // we continue until at least one statement is inserted.
+      // This is to handle both those situations:
+      // ```
+      // if (...) // comment
+      //   statement();
+      // ```
+      // and
+      // ```
+      // if (...)
+      //   statement(); // comment
+      // ```
+      while (try self.parseStatement(&node_list, err) <= 0) {}
       return node_list;
     }
     // pop l_brace
     _ = try self.tokenizer.next(err);
     var r_brace = try self.tokenizer.peek(err);
     while (r_brace.tag != Token.Tag.r_brace) {
-      try self.parseStatement(&node_list, err);
+      _ = try self.parseStatement(&node_list, err);
       r_brace = try self.tokenizer.peek(err);
     }
     // pop r_brace
@@ -2411,10 +2423,11 @@ pub const Parser = struct {
     return node_list;
   }
 
-  fn parseStatement(self: *Self, statement_list: *Ast.NodeList, err: *GenericError) ParseError!void {
+  fn parseStatement(self: *Self, statement_list: *Ast.NodeList, err: *GenericError) ParseError!usize {
     var local: VariableType = .nonlocal;
     var @"const" = false;
     var first_token = try self.tokenizer.peek(err);
+    const initial_nb_of_statement = statement_list.len();
     statement_block: switch (first_token.tag) {
       .kw_local => {
         _ = try self.tokenizer.next(err);
@@ -2589,6 +2602,8 @@ pub const Parser = struct {
         try self.checkToken(scToken, Token.Tag.semicolon, err);
       }
     }
+
+    return statement_list.len() - initial_nb_of_statement;
   }
 
   fn parseParamDeclaration(self: *Self, err: *GenericError) !Ast.Node.Index {
@@ -3159,6 +3174,24 @@ test "parser test" {
   // model pragmas
   try testParseWithOutput("$origin 0 0 -15", "$origin 0 0 -15\n", &err);
   try testParse("$origin 0 0 -15\n", &err);
+  // A comment in a single statement block
+  try testParseWithOutput(
+    \\void() GotoNextMap =
+    \\{
+    \\  if (cvar("samelevel"))  // if samelevel is set, stay on same level
+    \\    changelevel (mapname);
+    \\  else
+    \\    changelevel (nextmap);
+    \\};
+    ,
+    \\void () GotoNextMap = {
+    \\  if (cvar("samelevel")) {
+    \\    changelevel(mapname);
+    \\  } else {
+    \\    changelevel(nextmap);
+    \\  }
+    \\};
+    , &err);
 }
 
 test "expression parser test" {
