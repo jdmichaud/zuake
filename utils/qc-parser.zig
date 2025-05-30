@@ -634,9 +634,14 @@ pub const Tokenizer = struct {
         .multiline_comment => {
           if (self.buffer[index] == '*' and
             index + 1 < self.buffer.len and self.buffer[index + 1] == '/') {
-            result.tag = .comment;
-            result.end = index + 1;
-            return result;
+            // We do not return multi line comment for now, we just ignore them.
+            // Those comment can be in a middle of a syntax and having to ignore
+            // them everywhere is too complex.
+            // result.tag = .comment;
+            // result.end = index + 1;
+            // return result;
+            index += 2;
+            state = State.start;
           } else {
             index += 1;
           }
@@ -1467,9 +1472,13 @@ pub const Ast = struct {
               // written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
             },
             .return_statement => |expr| {
-              written += (try std.fmt.bufPrint(string[written..], "return ", .{})).len;
-              written += try nodes[expr].prettyPrint(nodes, string[written..]);
-              written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+              if (expr == 0) {
+                written += (try std.fmt.bufPrint(string[written..], "return;", .{})).len;
+              } else {
+                written += (try std.fmt.bufPrint(string[written..], "return ", .{})).len;
+                written += try nodes[expr].prettyPrint(nodes, string[written..]);
+                written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+              }
             },
             .if_statement => |ifs| {
               written += (try std.fmt.bufPrint(string[written..], "if ", .{})).len;
@@ -2372,12 +2381,20 @@ pub const Parser = struct {
       },
       .kw_return => {
         _ = try self.tokenizer.next(err);
-        const expression = try self.parseExpression(err);
-        statement_list.appendNode(try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
-          .return_statement = expression,
-        }}));
-        const scToken = try self.tokenizer.next(err);
-        try self.checkToken(scToken, Token.Tag.semicolon, err);
+        var sc_token = try self.tokenizer.peek(err);
+        if (sc_token.tag == Token.Tag.semicolon) {
+          // return;
+          statement_list.appendNode(try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+            .return_statement = 0,
+          }}));
+        } else {
+          const expression = try self.parseExpression(err);
+          statement_list.appendNode(try self.insertNode(Ast.Payload{ .statement = Ast.Statement{
+            .return_statement = expression,
+          }}));
+        }
+        sc_token = try self.tokenizer.next(err);
+        try self.checkToken(sc_token, Token.Tag.semicolon, err);
       },
       .kw_if => {
         _ = try self.tokenizer.next(err);
@@ -3068,6 +3085,26 @@ test "parser test" {
   try testParse(
     \\void (entity e, .string s) callout = {
     \\  print(e.s, "\n");
+    \\};
+    , &err);
+
+  // expression-less return;
+  try testParse(
+    \\void () nothing = {
+    \\  return;
+    \\};
+    , &err);
+
+  try testParseWithOutput(
+    \\void () nothing = {
+    \\  if (/* comment can be anywhere */ 1 == 1)
+    \\    return;
+    \\};
+    ,
+    \\void () nothing = {
+    \\  if (1 == 1) {
+    \\    return;
+    \\  }
     \\};
     , &err);
 }
