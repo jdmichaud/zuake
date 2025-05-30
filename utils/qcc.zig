@@ -42,7 +42,7 @@ pub fn main() !u8 {
   };
   defer std.posix.munmap(buffer);
 
-  var ast: [512]qc_parser.Ast.Node = undefined;
+  var ast: [4096]qc_parser.Ast.Node = undefined;
   var output: [4096:0]u8 = .{ 0 } ** 4096;
   var parser = qc_parser.Parser.init(buffer, ast[0..]);
   var err = qc_parser.GenericError{};

@@ -7,7 +7,7 @@ mv qcc /tmp/
 
 total=0
 pass=0
-for qcfiles in $(ls -Sr ../tests/quakec/*.qc)
+for qcfiles in $(ls -Sr ../tests/quakec/*.qc ../tests/v101qc/*.qc)
 do
   if [[ "${qcfiles}" = "../tests/quakec/enum.qc" ]];
   then
