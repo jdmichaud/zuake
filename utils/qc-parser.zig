@@ -727,6 +727,12 @@ pub const Ast = struct {
     declarations: NodeList,
   };
 
+  const ModelPragma = struct {
+    _parameters: [32][]const u8 = undefined,
+    command: []const u8,
+    parameters: [][]const u8 = undefined,
+  };
+
   const VarDecl = struct {
     type: QType,
     name: []const u8,
@@ -1168,6 +1174,7 @@ pub const Ast = struct {
 
   const PayloadType = enum {
     program,
+    model_pragma,
     var_decl,
     fn_decl,
     field_decl,
@@ -1182,6 +1189,7 @@ pub const Ast = struct {
 
   const Payload = union(PayloadType) {
     program: Program,
+    model_pragma: ModelPragma,
     var_decl: VarDecl,
     fn_decl: FnDecl,
     field_decl: FieldDecl,
@@ -1225,6 +1233,9 @@ pub const Ast = struct {
           written += try indentPrint(string[written..], indent, "  const        {}\n", .{ d.@"const" });
           written += try indentPrint(string[written..], indent, "  value        {}\n", .{ d.value });
           written += try indentPrint(string[written..], indent, "  multiplicity {?}\n", .{ d.multiplicity });
+        },
+        .model_pragma => |m| {
+          written += try indentPrint(string[written..], indent, "MODEL_PRAGMA {s}\n", .{ m.command });
         },
         .fn_decl => |f| {
           written += try indentPrint(string[written..], indent, "FN_DECL {s}\n", .{ f.name });
@@ -1368,6 +1379,19 @@ pub const Ast = struct {
             written += (try std.fmt.bufPrint(string[written..], "]", .{})).len;
           }
           written += (try std.fmt.bufPrint(string[written..], ";", .{})).len;
+        },
+        .model_pragma => |m| {
+          written += try indentPrint(string[written..], indent, "", .{});
+          written += (try std.fmt.bufPrint(string[written..], "{s} ", .{ m.command })).len;
+          var i: usize = 0;
+          for (m.parameters) |parameter| {
+            written += (try std.fmt.bufPrint(string[written..], "{s}", .{ parameter })).len;
+            if (i < m.parameters.len - 1) {
+              written += (try std.fmt.bufPrint(string[written..], " ", .{})).len;
+            }
+            i += 1;
+          }
+          written += (try std.fmt.bufPrint(string[written..], "\n", .{})).len;
         },
         .fn_decl => |f| {
           written += try indentPrint(string[written..], indent, "", .{});
@@ -1694,6 +1718,31 @@ pub const Parser = struct {
           } });
           return;
         },
+        Token.Tag.frame_identifier => {
+          // model pragma
+          const command = self.tokenizer.buffer[token.start..token.end + 1];
+          var model_pragma = Ast.ModelPragma{
+            .command = command,
+          };
+          // look for the end of the line
+          const eol = std.mem.indexOfScalar(u8, self.tokenizer.buffer[token.end + 1..], '\n')
+            orelse self.tokenizer.buffer[token.end + 1..].len;
+          const rest_of_line = self.tokenizer.buffer[token.end + 1..token.end + 1 + eol];
+          // tokenize by space
+          var parameter_tokenizer = std.mem.tokenizeScalar(u8, rest_of_line, ' ');
+          var i: usize = 0;
+          while (parameter_tokenizer.next()) |param| {
+            model_pragma._parameters[i] = param;
+            i += 1;
+          }
+          model_pragma.parameters = model_pragma._parameters[0..i];
+          // move the toknizer head
+          self.tokenizer.index = token.end + 1 + eol;
+          self.tokenizer.next_token = null;
+          declarations.appendNode(try self.insertNode(Ast.Payload{ .model_pragma = model_pragma }));
+        },
+        // Token.Tag.kw_enum => {
+        // },
         else => |t| return makeError(ParseError.UnexpectedInput,
           getLocation(self.tokenizer.buffer, token.start), err, "Unexpected token {}", .{ t }),
       }
@@ -2727,7 +2776,7 @@ test "tokenizer test" {
     Token.Tag.identifier,
     Token.Tag.equal,
     Token.Tag.l_brace,
-    Token.Tag.comment,
+    // Token.Tag.comment,
     Token.Tag.type,
     Token.Tag.identifier,
     Token.Tag.equal,
@@ -3107,6 +3156,9 @@ test "parser test" {
     \\  }
     \\};
     , &err);
+  // model pragmas
+  try testParseWithOutput("$origin 0 0 -15", "$origin 0 0 -15\n", &err);
+  try testParse("$origin 0 0 -15\n", &err);
 }
 
 test "expression parser test" {
