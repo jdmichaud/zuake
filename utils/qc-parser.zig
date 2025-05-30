@@ -2523,6 +2523,11 @@ pub const Parser = struct {
         const condition = try self.parseExpression(err);
         const r_paren_token = try self.tokenizer.next(err);
         try self.checkToken(r_paren_token, Token.Tag.r_paren, err);
+        // optional semicolon
+        const sc_token = try self.tokenizer.peek(err);
+        if (sc_token.tag == Token.Tag.semicolon) {
+          _ = try self.tokenizer.next(err);
+        }
 
         const do_while_statement = Ast.WhileStatement{
           .condition = condition,
@@ -3090,6 +3095,41 @@ test "parser test" {
     \\      pi -= 1.0 / (2 * i + 1);
     \\    i++;
     \\  } while (i < n)
+    \\
+    \\  pi *= 4;
+    \\
+    \\  print("Approximation of pi: %.15f\n", pi);
+    \\  return pi;
+    \\};
+    ,
+    \\float (float n) main = {
+    \\  float pi = 0;
+    \\  float i = 0;
+    \\  do {
+    \\    if (i % 2 == 0) {
+    \\      pi += 1 / (2 * i + 1);
+    \\    } else {
+    \\      pi -= 1 / (2 * i + 1);
+    \\    }
+    \\    i++;
+    \\  } while (i < n)
+    \\  pi *= 4;
+    \\  print("Approximation of pi: %.15f\n", pi);
+    \\  return pi;
+    \\};
+    , &err);
+  // do-while with semicolon
+  try testParseWithOutput(
+    \\float (float n) main = {
+    \\  float pi = 0;
+    \\  float i = 0;
+    \\  do {
+    \\    if (i % 2 == 0)
+    \\      pi += 1.0 / (2 * i + 1);
+    \\    else
+    \\      pi -= 1.0 / (2 * i + 1);
+    \\    i++;
+    \\  } while (i < n);
     \\
     \\  pi *= 4;
     \\
