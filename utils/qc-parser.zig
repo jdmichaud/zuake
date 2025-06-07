@@ -746,6 +746,12 @@ pub const Ast = struct {
     elipsis,
     variable,
     field,
+    fn_type,
+  };
+
+  const FnType = struct {
+    return_type: QType,
+    parameter_list: NodeList,
   };
 
   const ParamDecl = struct {
@@ -758,11 +764,15 @@ pub const Ast = struct {
       field: struct {
         type: QType,
         name: []const u8,
-      }
+      },
+      fn_type: struct {
+        type: FnType,
+        name: []const u8,
+      },
     },
 
     const Self = @This();
-    pub fn prettyPrint(self: Self, string: []u8) !usize {
+    pub fn prettyPrint(self: Self, nodes: []const Node, string: []u8) !usize {
       switch (self.param) {
         .elipsis => {
           return (try std.fmt.bufPrint(string, "...", .{})).len;
@@ -775,6 +785,16 @@ pub const Ast = struct {
           var written = (try std.fmt.bufPrint(string, ".", .{})).len;
           written += try param.type.prettyPrint(string[written..]);
           return written + (try std.fmt.bufPrint(string[written..], " {s}", .{ param.name })).len;
+        },
+        .fn_type => |fn_type| {
+          var written: usize = 0;
+          written += try fn_type.type.return_type.prettyPrint(string[written..]);
+          written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
+          var paramIt = fn_type.type.parameter_list.iter();
+          while (paramIt.next()) |param| {
+            written += try param.prettyPrint(nodes, string[written..]);
+          }
+          return written + (try std.fmt.bufPrint(string[written..], ") {s}", .{ fn_type.name })).len;
         },
       }
     }
@@ -844,10 +864,9 @@ pub const Ast = struct {
   };
 
   const FnDecl = struct {
-    return_type: QType,
+    fn_type: FnType,
     name: []const u8,
     frame_specifier: ?FrameSpecifier,
-    parameter_list: NodeList,
     body: Node.Index,
   };
 
@@ -869,9 +888,8 @@ pub const Ast = struct {
   };
 
   const BuiltinDecl = struct {
+    fn_type: FnType,
     name: []const u8,
-    return_type: QType,
-    parameter_list: NodeList,
     index: usize,
   };
 
@@ -1089,7 +1107,7 @@ pub const Ast = struct {
     assignment: Assignment,
     ternary: Ternary,
 
-    pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
+    pub fn prettyPrint(self: @This(), nodes: []const Node, string: []u8) PrintError!usize {
       var written: usize = 0;
       switch (self) {
         .unary_op => |u| {
@@ -1216,7 +1234,7 @@ pub const Ast = struct {
       };
     }
 
-    fn getNode(nodes: []Node, index: Node.Index) ?Node {
+    fn getNode(nodes: []const Node, index: Node.Index) ?Node {
       if (index == 0) return null;
       return nodes[index];
     }
@@ -1239,9 +1257,9 @@ pub const Ast = struct {
         },
         .fn_decl => |f| {
           written += try indentPrint(string[written..], indent, "FN_DECL {s}\n", .{ f.name });
-          written += try indentPrint(string[written..], indent, "  return type {}\n", .{ f.return_type });
+          written += try indentPrint(string[written..], indent, "  return type {}\n", .{ f.fn_type.return_type });
           written += try indentPrint(string[written..], indent, "  parameters:\n", .{});
-          var paramIt = f.parameter_list.iter();
+          var paramIt = f.fn_type.parameter_list.iter();
           while (paramIt.next()) |param| {
             written += try param.debugPrint(nodes, string[written..], indent + 4);
           }
@@ -1314,7 +1332,7 @@ pub const Ast = struct {
         },
         .param_decl => |p| {
           var paramstr: [255]u8 = undefined;
-          const n = try p.prettyPrint(&paramstr);
+          const n = try p.prettyPrint(nodes, &paramstr);
           written += try indentPrint(string[written..], indent, "PARAM_DECL {s}\n", .{ paramstr[0..n] });
         },
         .statement => |s| {
@@ -1348,11 +1366,11 @@ pub const Ast = struct {
       return written;
     }
 
-    pub fn prettyPrint(self: @This(), nodes: []Node, string: []u8) PrintError!usize {
+    pub fn prettyPrint(self: @This(), nodes: []const Node, string: []u8) PrintError!usize {
       return try self.prettyPrintIndent(nodes, string, 0);
     }
 
-    pub fn prettyPrintIndent(self: @This(), nodes: []Node, string: []u8, indent: usize) PrintError!usize {
+    pub fn prettyPrintIndent(self: @This(), nodes: []const Node, string: []u8, indent: usize) PrintError!usize {
       var written: usize = 0;
       switch (self.payload) {
         .var_decl => |d| {
@@ -1395,13 +1413,13 @@ pub const Ast = struct {
         },
         .fn_decl => |f| {
           written += try indentPrint(string[written..], indent, "", .{});
-          written += try f.return_type.prettyPrint(string[written..]);
+          written += try f.fn_type.return_type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
-          var paramIt = f.parameter_list.iter();
+          var paramIt = f.fn_type.parameter_list.iter();
           var i: usize = 0;
           while (paramIt.next()) |param| : (i += 1) {
             written += try param.prettyPrintIndent(nodes, string[written..], indent);
-            if (i < f.parameter_list.len() - 1) {
+            if (i < f.fn_type.parameter_list.len() - 1) {
               written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
             }
           }
@@ -1456,13 +1474,13 @@ pub const Ast = struct {
         },
         .builtin_decl => |d| {
           written += try indentPrint(string[written..], indent, "", .{});
-          written += try d.return_type.prettyPrint(string[written..]);
+          written += try d.fn_type.return_type.prettyPrint(string[written..]);
           written += (try std.fmt.bufPrint(string[written..], " (", .{})).len;
-          var paramIt = d.parameter_list.iter();
+          var paramIt = d.fn_type.parameter_list.iter();
           var i: usize = 0;
           while (paramIt.next()) |param| : (i += 1) {
             written += try param.prettyPrintIndent(nodes, string[written..], indent);
-            if (i < d.parameter_list.len() - 1) {
+            if (i < d.fn_type.parameter_list.len() - 1) {
               written += (try std.fmt.bufPrint(string[written..], ", ", .{})).len;
             }
           }
@@ -1485,7 +1503,7 @@ pub const Ast = struct {
           }
         },
         .param_decl => |p| {
-          written += try p.prettyPrint(string[written..]);
+          written += try p.prettyPrint(nodes, string[written..]);
         },
         .statement => |s| {
           written += try indentPrint(string[written..], indent, "", .{});
@@ -2277,27 +2295,38 @@ pub const Parser = struct {
     _ = try self.tokenizer.next(err);
   }
 
-  fn parseFunctionDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node.Index {
+  fn parseFunctionType(self: *Self, typeToken: Token, err: *GenericError) ParseError!Ast.FnType {
     // Retrieve the return type
     const atype = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]) catch |e| {
       return makeError(e, getLocation(self.tokenizer.buffer, typeToken.start), err,
         "Expecting a type got {s}", .{ self.tokenizer.buffer[typeToken.start..typeToken.end + 1] });
     };
     // Create a temporary
-    var fn_decl = Ast.FnDecl{
+    var fn_type = Ast.FnType{
       .return_type = atype,
-      .name = "",
-      .frame_specifier = null,
       .parameter_list = Ast.NodeList.init(0, self.nodes),
-      .body = 0,
     };
     // Peek at the next token
-    var l_paren = try self.tokenizer.peek(err);
+    const l_paren = try self.tokenizer.peek(err);
     if (l_paren.tag == Token.Tag.l_paren) {
       // This is a QuakeC-style funcion definition with the parameters before the
       // function identifier.
-      try self.parseFunctionParameters(&fn_decl.parameter_list, err);
+      // C-style are only present in function definition and will be parsed
+      // in the associated parse function.
+      try self.parseFunctionParameters(&fn_type.parameter_list, err);
     }
+    return fn_type;
+  }
+
+  fn parseFunctionDefinition(self: *Self, typeToken: Token, err: *GenericError) !Ast.Node.Index {
+    var fn_type = try self.parseFunctionType(typeToken, err);
+    // Create a temporary
+    var fn_decl = Ast.FnDecl{
+      .fn_type = fn_type,
+      .name = "",
+      .frame_specifier = null,
+      .body = 0,
+    };
     const identifier_token = try self.tokenizer.next(err);
     if (identifier_token.tag != Token.Tag.identifier) {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
@@ -2317,11 +2346,11 @@ pub const Parser = struct {
         continue :switch_start (try self.tokenizer.peek(err)).tag;
       },
       Token.Tag.l_paren => {
-        // This is a C-style funcion definition with the parameters before the
+        // This is a C-style function definition with the parameters before the
         // function identifier.
-        l_paren = try self.tokenizer.peek(err);
+        const l_paren = try self.tokenizer.peek(err);
         try self.checkToken(l_paren, Token.Tag.l_paren, err);
-        try self.parseFunctionParameters(&fn_decl.parameter_list, err);
+        try self.parseFunctionParameters(&fn_type.parameter_list, err);
       },
       else => {},
     }
@@ -2361,9 +2390,8 @@ pub const Parser = struct {
         const builtinImmediateToken = try self.tokenizer.next(err);
         const bl = self.tokenizer.buffer[builtinImmediateToken.start + 1..builtinImmediateToken.end + 1];
         const bDecl = Ast.BuiltinDecl{
-          .return_type = atype,
+          .fn_type = fn_type,
           .name = fn_decl.name,
-          .parameter_list = fn_decl.parameter_list,
           .index = try std.fmt.parseInt(u16, bl, 10),
         };
         return self.insertNode(Ast.Payload{ .builtin_decl = bDecl });
@@ -2620,30 +2648,51 @@ pub const Parser = struct {
     }
     const is_field = typeToken.tag == Token.Tag.dot;
     if (is_field) {
-      typeToken = try self.tokenizer.next(err);
+      typeToken = try self.tokenizer.peek(err);
     }
-    const atype = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]) catch |e| {
-      return makeError(e, getLocation(self.tokenizer.buffer, typeToken.start), err,
-        "Expecting a type got {s}", .{ self.tokenizer.buffer[typeToken.start..typeToken.end + 1] });
-    };
-    const identifier_token = try self.tokenizer.next(err);
-    if (identifier_token.tag != Token.Tag.identifier) {
-      return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
-        "expecting identifier found {}", .{ identifier_token });
-    }
-    const name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1];
-    return if (is_field)
-      self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
+    const nextToken = try self.tokenizer.peekAt(err, 1);
+    if (nextToken.tag == Token.Tag.l_paren) {
+      const fn_type = try self.parseFunctionType(typeToken, err);
+
+      const identifier_token = try self.tokenizer.next(err);
+      if (identifier_token.tag != Token.Tag.identifier) {
+        return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
+          "expecting identifier found {}", .{ identifier_token });
+      }
+      const name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1];
+      return self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
         .param = .{
-          .field = .{ .type = atype, .name = name },
-        }
-      } })
-    else
-      self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
-        .param = .{
-          .variable = .{ .type = atype, .name = name },
-        }
+          .fn_type = .{ .type = fn_type, .name = name },
+        },
       } });
+    } else {
+      if (is_field) {
+        typeToken = try self.tokenizer.next(err);
+      }
+      const atype = Ast.QType.fromName(self.tokenizer.buffer[typeToken.start..typeToken.end + 1]) catch |e| {
+        return makeError(e, getLocation(self.tokenizer.buffer, typeToken.start), err,
+          "Expecting a type got {s}", .{ self.tokenizer.buffer[typeToken.start..typeToken.end + 1] });
+      };
+
+      const identifier_token = try self.tokenizer.next(err);
+      if (identifier_token.tag != Token.Tag.identifier) {
+        return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
+          "expecting identifier found {}", .{ identifier_token });
+      }
+      const name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1];
+      return if (is_field)
+        self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
+          .param = .{
+            .field = .{ .type = atype, .name = name },
+          }
+        } })
+      else
+        self.insertNode(Ast.Payload{ .param_decl = Ast.ParamDecl{
+          .param = .{
+            .variable = .{ .type = atype, .name = name },
+          }
+        } });
+    }
   }
 };
 
@@ -2924,6 +2973,8 @@ test "parser test" {
   try testParse("void (float f, vector v) main = {};", &err);
   try testParse("void (string str, ...) print = #99;", &err);
   try testParse("void () enf_die1 = [$death1, enf_die2] {};", &err);
+  // Function as function parameter
+  try testParse("void (entity ent, vector tdest, void () func) foo = {};", &err);
   // Field pointer
   try testParse("..string ps;", &err);
   // Static array
