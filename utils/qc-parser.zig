@@ -1723,13 +1723,13 @@ pub const Parser = struct {
           try self.parseDeclaration(&declarations, err);
         },
         Token.Tag.dot => { // field decl
-          declarations.appendNode(try self.parseFieldDefinition(err));
+          try self.parseFieldDefinition(&declarations, err);
         },
         Token.Tag.eof => {
           if (declarations.len() == 0) {
             // Do not allow empty source file
             return makeError(ParseError.EmptySource, getLocation(self.tokenizer.buffer, token.start),
-              err, "Empty source file", .{});
+              err, "Unexpected end of file", .{});
           }
           self.nodes[0] = Ast.Node.init(Ast.Payload{ .program = Ast.Program{
             .declarations = declarations,
@@ -1772,6 +1772,11 @@ pub const Parser = struct {
     nonlocal,
   };
 
+  const ConstType = enum {
+    @"const",
+    nonconst,
+  };
+
   fn parseDeclaration(self: *Self, declarations: *Ast.NodeList, err: *GenericError) !void {
     const typeToken = try self.tokenizer.next(err);
     const identifierToken = try self.tokenizer.peek(err);
@@ -1782,7 +1787,7 @@ pub const Parser = struct {
           declarations.appendNode(try self.parseFunctionDefinition(typeToken, err));
           return;
         }
-        try self.parseVariableDefinition(declarations, typeToken, .nonlocal, false, err);
+        try self.parseVariableDefinition(declarations, typeToken, .nonlocal, .nonconst, err);
         const scToken = try self.tokenizer.next(err);
         try self.checkToken(scToken, Token.Tag.semicolon, err);
       },
@@ -1802,7 +1807,7 @@ pub const Parser = struct {
   }
 
   fn parseVariableDefinition(self: *Self, declarations: *Ast.NodeList, typeToken: Token,
-    vtype: VariableType, @"const": bool, err: *GenericError) !void {
+    vtype: VariableType, @"const": ConstType, err: *GenericError) !void {
     var identifier_token = try self.tokenizer.next(err);
     if (identifier_token.tag != Token.Tag.identifier) {
       return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, identifier_token.start), err,
@@ -1822,7 +1827,7 @@ pub const Parser = struct {
           .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
           .value = value,
           .local = vtype == .local,
-          .@"const" = @"const",
+          .@"const" = @"const" == .@"const",
           .multiplicity = 0,
         }}));
         value = 0;
@@ -1834,7 +1839,7 @@ pub const Parser = struct {
           .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
           .value = value,
           .local = vtype == .local,
-          .@"const" = @"const",
+          .@"const" = @"const" == .@"const",
           .multiplicity = 0,
         }}));
         value = 0;
@@ -1852,7 +1857,7 @@ pub const Parser = struct {
           .name = self.tokenizer.buffer[identifier_token.start..identifier_token.end + 1],
           .value = 0,
           .local = vtype == .local,
-          .@"const" = @"const",
+          .@"const" = @"const" == .@"const",
           .multiplicity = multiplicity,
         }}));
         try self.checkToken(try self.tokenizer.next(err), Token.Tag.r_bracket, err);
@@ -1863,49 +1868,78 @@ pub const Parser = struct {
     };
   }
 
-  fn parseFieldDefinition(self: *Self, err: *GenericError) !Ast.Node.Index {
+  fn parseFieldDefinition(self: *Self, declarations: *Ast.NodeList, err: *GenericError) !void {
     // discard dot
     _ = try self.tokenizer.next(err);
-    const type_token = try self.tokenizer.peek(err);
+    var type_token = try self.tokenizer.peek(err);
 
     // To handle field pointers like `..string ps`
-    if (type_token.tag == Token.Tag.dot) {
-      return self.insertNode(Ast.Payload{ .ptr_decl = Ast.PtrDecl{
-        .pointee = try self.parseFieldDefinition(err),
-      }});
+    const isPtr = type_token.tag == Token.Tag.dot;
+    if (isPtr) {
+      _ = try self.tokenizer.next(err);
+      type_token = try self.tokenizer.next(err);
+    } else {
+      _ = try self.tokenizer.next(err);
     }
+    // return self.insertNode(Ast.Payload{ .ptr_decl = Ast.PtrDecl{
+    //   .pointee = try self.parseFieldDefinition(declarations, err),
+    // }});
 
-    _ = try self.tokenizer.next(err);
-    const next_token = try self.tokenizer.peek(err);
-    switch (next_token.tag) {
+    var next_token = try self.tokenizer.peek(err);
+    b: switch (next_token.tag) {
       Token.Tag.identifier => {
-        _ = try self.tokenizer.next(err);
-        const sc_token = try self.tokenizer.next(err);
-        switch (sc_token.tag) {
-          Token.Tag.semicolon => {
-            return self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
-              .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
-              .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
-              .multiplicity = 0,
-            }});
-          },
-          Token.Tag.l_bracket => {
-            const multiplicity = try self.parseExpression(err);
-            const node = self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
-              .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
-              .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
-              .multiplicity = multiplicity,
-            }});
-            try self.checkToken(try self.tokenizer.next(err), Token.Tag.r_bracket, err);
-            try self.checkToken(try self.tokenizer.next(err), Token.Tag.semicolon, err);
-            return node;
-          },
-          else => return makeError(ParseError.UnexpectedInput,
-            getLocation(self.tokenizer.buffer, next_token.start), err,
-            "expecting ';' or '[', found {}", .{ next_token }),
+        next_token = try self.tokenizer.next(err);
+        const sc_token = try self.tokenizer.peek(err);
+        if (sc_token.tag == Token.Tag.l_bracket) {
+          _ = try self.tokenizer.next(err);
+          // Declaring an array:
+          // .float flds[6];
+          const multiplicity = try self.parseExpression(err);
+          const field_decl = try self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
+            .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
+            .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
+            .multiplicity = multiplicity,
+          }});
+          try self.checkToken(try self.tokenizer.next(err), Token.Tag.r_bracket, err);
+          try self.checkToken(try self.tokenizer.next(err), Token.Tag.semicolon, err);
+          if (isPtr) {
+            declarations.appendNode(try self.insertNode(Ast.Payload{ .ptr_decl = Ast.PtrDecl{
+              .pointee = field_decl,
+            }}));
+          } else {
+            declarations.appendNode(field_decl);
+          }
+          return; // we suppose we can't declare a variable after an array (we'll see!)
+        } else {
+          const field_decl = try self.insertNode(Ast.Payload{ .field_decl = Ast.FieldDecl{
+            .type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
+            .name = self.tokenizer.buffer[next_token.start..next_token.end + 1],
+            .multiplicity = 0,
+          }});
+          if (isPtr) {
+            declarations.appendNode(try self.insertNode(Ast.Payload{ .ptr_decl = Ast.PtrDecl{
+              .pointee = field_decl,
+            }}));
+          } else {
+            declarations.appendNode(field_decl);
+          }
+          // Another declaration might follow
+          continue :b (try self.tokenizer.peek(err)).tag;
         }
       },
+      Token.Tag.semicolon => {
+        // discard the semicolon
+        _ = try self.tokenizer.next(err);
+        return;
+      },
+      Token.Tag.comma => {
+        // discard the comma
+        _ = try self.tokenizer.next(err);
+        continue :b (try self.tokenizer.peek(err)).tag;
+      },
       Token.Tag.l_paren => {
+        // Declaring a method:
+        // .void() foo;
         var method_decl = Ast.MethodDecl{
           .return_type = try Ast.QType.fromName(self.tokenizer.buffer[type_token.start..type_token.end + 1]),
           .name = "",
@@ -1921,11 +1955,12 @@ pub const Parser = struct {
         const sc_token = try self.tokenizer.next(err);
         try self.checkToken(sc_token, Token.Tag.semicolon, err);
 
-        return  self.insertNode(Ast.Payload{ .method_decl = method_decl });
+        declarations.appendNode(try self.insertNode(Ast.Payload{ .method_decl = method_decl }));
+        return;
       },
       else => return makeError(ParseError.UnexpectedInput,
         getLocation(self.tokenizer.buffer, next_token.start), err,
-        "expecting identifier or '(', found {}", .{ next_token }),
+        "expecting identifier, ';', ',' or '(', found {}", .{ next_token }),
     }
   }
 
@@ -2453,7 +2488,7 @@ pub const Parser = struct {
 
   fn parseStatement(self: *Self, statement_list: *Ast.NodeList, err: *GenericError) ParseError!usize {
     var local: VariableType = .nonlocal;
-    var @"const" = false;
+    var @"const": ConstType = .nonconst;
     var first_token = try self.tokenizer.peek(err);
     const initial_nb_of_statement = statement_list.len();
     statement_block: switch (first_token.tag) {
@@ -2465,7 +2500,7 @@ pub const Parser = struct {
       },
       .kw_const => {
         _ = try self.tokenizer.next(err);
-        @"const" = true;
+        @"const" = .@"const";
         first_token = try self.tokenizer.peek(err);
         continue :statement_block first_token.tag;
       },
@@ -2959,6 +2994,10 @@ test "parser test" {
   try testParseWithOutput("float a, b = 2;",
     \\float a;
     \\float b = 2;
+    , &err);
+  try testParseWithOutput(".float a, b;",
+    \\.float a;
+    \\.float b;
     , &err);
   try testParse("string s = \"foo\";", &err);
   try testParse("vector v = '1 2 3';", &err);
