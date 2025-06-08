@@ -625,9 +625,13 @@ pub const Tokenizer = struct {
         },
         .comment => switch (self.buffer[index]) {
           '\n' => {
-            result.tag = .comment;
-            result.end = index;
-            return result;
+            // We do not return comment for now, we just ignore them.
+            // Those comment can be in a middle of a syntax and having to ignore
+            // them everywhere in the parser is too complex.
+            // result.tag = .comment;
+            // result.end = index;
+            // return result;
+            state = State.start;
           },
           else => index += 1,
         },
@@ -636,7 +640,7 @@ pub const Tokenizer = struct {
             index + 1 < self.buffer.len and self.buffer[index + 1] == '/') {
             // We do not return multi line comment for now, we just ignore them.
             // Those comment can be in a middle of a syntax and having to ignore
-            // them everywhere is too complex.
+            // them everywhere in the parser is too complex.
             // result.tag = .comment;
             // result.end = index + 1;
             // return result;
@@ -2878,7 +2882,7 @@ test "tokenizer test" {
     \\ }
   ;
   try testTokenize(comments, &.{
-    Token.Tag.comment,
+    // Token.Tag.comment,
     Token.Tag.type,
     Token.Tag.l_paren,
     Token.Tag.r_paren,
@@ -2895,7 +2899,7 @@ test "tokenizer test" {
     Token.Tag.identifier,
     Token.Tag.r_paren,
     Token.Tag.semicolon,
-    Token.Tag.comment,
+    // Token.Tag.comment,
     Token.Tag.r_brace,
     Token.Tag.eof,
   }, &err);
@@ -3348,6 +3352,28 @@ test "parser test" {
     \\    changelevel (mapname);
     \\  else
     \\    changelevel (nextmap);
+    \\};
+    ,
+    \\void () GotoNextMap = {
+    \\  if (cvar("samelevel")) {
+    \\    changelevel(mapname);
+    \\  } else {
+    \\    changelevel(nextmap);
+    \\  }
+    \\};
+    , &err);
+  // A comment in a single statement block
+  try testParseWithOutput(
+    \\void() GotoNextMap =
+    \\{
+    \\  if (cvar("samelevel"))  // if samelevel is set, stay on same level
+    \\  {
+    \\    changelevel (mapname);
+    \\  }
+    \\  else
+    \\  {
+    \\    changelevel (nextmap);
+    \\  }
     \\};
     ,
     \\void () GotoNextMap = {
