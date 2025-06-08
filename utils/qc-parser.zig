@@ -2018,7 +2018,6 @@ pub const Parser = struct {
       },
       // Frame identifier
       Token.Tag.frame_identifier => {
-        _ = try self.tokenizer.next(err);
         const name = self.tokenizer.buffer[token.start..token.end + 1];
         // Variables
         return self.insertNode(Ast.Payload{ .expression = Ast.Expression{
@@ -3324,7 +3323,7 @@ test "parser test" {
     , &err);
 }
 
-test "expression parser test" {
+test "parse expression test" {
   // std.testing.log_level = .debug;
 
   var err = GenericError{};
@@ -3393,6 +3392,7 @@ test "expression parser test" {
   try testExpression("a ? 1 : 2", &err);
   try testExpression("2 = 0 ? b : 2 ** 3", &err);
   try testExpression("1 ? a = 0 ? 2 : 3 : 4", &err);
+  try testExpression("self.frame = $axstnd1 + self.walkframe", &err);
 }
 
 test "peekAt" {
