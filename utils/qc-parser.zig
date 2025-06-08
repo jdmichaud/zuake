@@ -579,7 +579,7 @@ pub const Tokenizer = struct {
           else => return result,
         },
         .frame_identifier => switch (self.buffer[index]) {
-          'a'...'z', 'A'...'Z', '0'...'9' => {
+          'a'...'z', 'A'...'Z', '0'...'9', '_' => {
             result.tag = .frame_identifier;
             result.end = index;
             index += 1;
