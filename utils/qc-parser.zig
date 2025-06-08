@@ -858,8 +858,16 @@ pub const Ast = struct {
     builtin_immediate: u16,
   };
 
+  const FrameSpecifierIdentifierType = enum {
+    index,
+    identifier,
+  };
+
   const FrameSpecifier = struct {
-    frame_identifier: Identifier,
+    frame_identifier: union(FrameSpecifierIdentifierType) {
+      index: usize,
+      identifier: Identifier,
+    },
     next_function: Identifier,
   };
 
@@ -1265,7 +1273,10 @@ pub const Ast = struct {
           }
           if (f.frame_specifier) |fs| {
             written += try indentPrint(string[written..], indent, "  frame specifiers:\n", .{});
-            written += try indentPrint(string[written..], indent, "    frame: {s}\n", .{ fs.frame_identifier.name });
+            switch (fs.frame_identifier) {
+              .identifier => |i| written += try indentPrint(string[written..], indent, "    frame: {s}\n", .{ i.name }),
+              .index => |i| written += try indentPrint(string[written..], indent, "    frame: {}\n", .{ i }),
+            }
             written += try indentPrint(string[written..], indent, "    next fn: {s}\n", .{ fs.next_function.name });
           }
           written += try indentPrint(string[written..], indent, "  frame_specifier:\n", .{});
@@ -1299,7 +1310,10 @@ pub const Ast = struct {
           }
           if (f.frame_specifier) |fs| {
             written += try indentPrint(string[written..], indent, "  frame specifiers:\n", .{});
-            written += try indentPrint(string[written..], indent, "    frame: {s}\n", .{ fs.frame_identifier.name });
+            switch (fs.frame_identifier) {
+              .identifier => |i| written += try indentPrint(string[written..], indent, "    frame: {s}\n", .{ i.name }),
+              .index => |i| written += try indentPrint(string[written..], indent, "    frame: {}\n", .{ i }),
+            }
             written += try indentPrint(string[written..], indent, "    next fn: {s}\n", .{ fs.next_function.name });
           }
           written += try indentPrint(string[written..], indent, "  frame_specifier:\n", .{});
@@ -1431,10 +1445,20 @@ pub const Ast = struct {
           }
 
           if (f.frame_specifier) |fs| {
-            written += (try std.fmt.bufPrint(string[written..], "[{s}, {s}] ", .{
-              fs.frame_identifier.name,
-              fs.next_function.name,
-            })).len;
+            switch (fs.frame_identifier) {
+              .identifier => |identifier| {
+                written += (try std.fmt.bufPrint(string[written..], "[{s}, {s}] ", .{
+                  identifier.name,
+                  fs.next_function.name,
+                })).len;
+              },
+              .index => |index| {
+                written += (try std.fmt.bufPrint(string[written..], "[{}, {s}] ", .{
+                  index,
+                  fs.next_function.name,
+                })).len;
+              }
+            }
           }
 
           if (fbody) |body| {
@@ -1881,9 +1905,6 @@ pub const Parser = struct {
     } else {
       _ = try self.tokenizer.next(err);
     }
-    // return self.insertNode(Ast.Payload{ .ptr_decl = Ast.PtrDecl{
-    //   .pointee = try self.parseFieldDefinition(declarations, err),
-    // }});
 
     var next_token = try self.tokenizer.peek(err);
     b: switch (next_token.tag) {
@@ -2392,13 +2413,9 @@ pub const Parser = struct {
     const functionContentToken = try self.tokenizer.peek(err);
     if (functionContentToken.tag == Token.Tag.l_bracket) {
       // Frame specifier
-      _ = try self.tokenizer.next(err);
-      const frame_identifier = b: {
-        const frame_identifier_token = try self.tokenizer.next(err);
-        try self.checkToken(frame_identifier_token, Token.Tag.frame_identifier, err);
-        const name = self.tokenizer.buffer[frame_identifier_token.start..frame_identifier_token.end + 1];
-        break :b Ast.Identifier{ .name = name };
-      };
+      _ = try self.tokenizer.next(err); // discard the bracket
+      const frame_identifier_token = try self.tokenizer.next(err);
+      // We check the frame_identifier tag later
       {
         const comma_token = try self.tokenizer.next(err);
         try self.checkToken(comma_token, Token.Tag.comma, err);
@@ -2411,10 +2428,29 @@ pub const Parser = struct {
       };
       const r_bracket_token = try self.tokenizer.next(err);
       try self.checkToken(r_bracket_token, Token.Tag.r_bracket, err);
-      fn_decl.frame_specifier = Ast.FrameSpecifier{
-        .frame_identifier = frame_identifier,
-        .next_function = next_function,
-      };
+
+      switch (frame_identifier_token.tag) {
+        .frame_identifier => {
+          const name = self.tokenizer.buffer[frame_identifier_token.start..frame_identifier_token.end + 1];
+          fn_decl.frame_specifier = Ast.FrameSpecifier{
+            .frame_identifier = .{ .identifier = Ast.Identifier{ .name = name } },
+            .next_function = next_function,
+          };
+
+        },
+        .float_literal => {
+          const buf = self.tokenizer.buffer[frame_identifier_token.start..frame_identifier_token.end + 1];
+          const index = try std.fmt.parseInt(usize, buf, 10);
+          fn_decl.frame_specifier = Ast.FrameSpecifier{
+            .frame_identifier = .{ .index = index },
+            .next_function = next_function,
+          };
+        },
+        else => {
+          return makeError(ParseError.UnexpectedInput, getLocation(self.tokenizer.buffer, body_token.start), err,
+            "frame specifier expect a frame identifier or a integer literal, got {}", .{ body_token.tag });
+        }
+      }
     }
     // Now parse the body
     body_token = try self.tokenizer.peek(err);
@@ -3011,6 +3047,7 @@ test "parser test" {
   try testParse("void (float f, vector v) main = {};", &err);
   try testParse("void (string str, ...) print = #99;", &err);
   try testParse("void () enf_die1 = [$death1, enf_die2] {};", &err);
+  try testParse("void () s_explode1 = [0, s_explode2] {};", &err);
   // Function as function parameter
   try testParse("void (entity ent, vector tdest, void () func) foo = {};", &err);
   // Field pointer
